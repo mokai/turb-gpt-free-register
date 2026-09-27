@@ -16,6 +16,8 @@ EMAIL_SOURCE 支持单个或多个来源：
     ["outlook", "generic_api", "mailnest", "cloudmail", "remail"]  # 也兼容列表写法
 """
 import logging
+import re
+from datetime import datetime
 from typing import Iterable
 
 logger = logging.getLogger(__name__)
@@ -199,53 +201,87 @@ def _registered_email_source(email: str) -> str | None:
     return _normalize_explicit_email_source((account or {}).get("email_source"))
 
 
-def wait_for_otp(
-    email: str,
-    after_ts: float,
-    max_wait: int | None = None,
-    poll_interval: int | None = None,
-    settle_seconds: int | None = None,
-    email_source: str | None = None,
-    force_service: bool = False,
-) -> str:
-    """等待并返回该邮箱最新的 ChatGPT OTP（6 位数字字符串）。
-
-    USE_EMAIL_SERVICE=False 时走手动验证码通道（WebUI 提交 / CLI 输入），
-    不再强制要求 Outlook clientId/refreshToken。
-    """
+def _manual_fallback_settings() -> tuple[bool, int]:
+    """读取「自动取码失败转人工输入」的开关与等待时长。"""
     try:
         from config import email as _email_cfg
-        use_service = bool(getattr(_email_cfg, "USE_EMAIL_SERVICE", True))
+        enabled = bool(getattr(_email_cfg, "MANUAL_OTP_FALLBACK", True))
+        timeout = int(getattr(_email_cfg, "MANUAL_OTP_TIMEOUT", 600) or 600)
     except Exception:
-        use_service = True
+        enabled, timeout = True, 600
+    return enabled, max(30, timeout)
 
-    if not use_service and not force_service:
-        from core.manual_otp import wait_for_manual_otp
-        from config import email as _email_cfg
-        timeout = int(max_wait if max_wait is not None else (getattr(_email_cfg, "OTP_MAX_WAIT", 180) or 180))
-        job_id = None
+
+# 这些异常代表「账号/任务本身不可继续」，人工输入也救不回来，不做兜底。
+_NO_MANUAL_FALLBACK_EXC = {
+    "AccountUnusableError", "StopRequested",
+    "ManualOtpCancelled", "ManualOtpTimeoutError",
+    "KeyboardInterrupt", "SystemExit",
+}
+
+
+def resolve_code_url(email: str, source: str | None = None) -> str:
+    """解析该邮箱的取码地址，供人工输入弹框展示（取不到返回空串）。"""
+    target = str(email or "").strip()
+    if not target:
+        return ""
+    try:
+        src = _normalize_explicit_email_source(source) or _registered_email_source(target) or resolve_email_source(target)
+    except Exception:
+        src = _normalize_explicit_email_source(source)
+    from core import db
+
+    # 1) 邮箱池里显式保存的取码地址（generic_api / imap 等）
+    try:
+        if src == "generic_api":
+            row = db.get_generic_api_email_by_email(target)
+        elif src == "imap":
+            row = db.get_imap_email_by_email(target)
+        elif src == "outlook":
+            row = db.get_outlook_by_email(target)
+        else:
+            row = None
+        link = str((row or {}).get("code_url") or "").strip()
+        if link:
+            return link
+    except Exception:
+        pass
+
+    # 2) 账号素材行里可能内嵌取码地址（如 Remail pickup 链接）
+    try:
+        account = db.get_account_by_email(target) or {}
+        for field in ("original_email_line", "copy_line"):
+            line = str(account.get(field) or "")
+            match = re.search(r"https?://\S+", line)
+            if match:
+                return match.group(0).rstrip(")")
+    except Exception:
+        pass
+
+    # 2.1) Remail 账号：用保存的 service token 拼出 pickup 取件地址
+    if src == "remail":
         try:
-            from core import registration_service as svc
-            job_id = getattr(svc._THREAD_CTX, "job_id", None)
+            from core import remail_client
+
+            meta = remail_client._saved_context_metadata(target)
+            token = str((meta or {}).get("service_token") or "").strip()
+            link = remail_client.pickup_url(target, token)
+            if link:
+                return link
         except Exception:
-            job_id = None
-        return wait_for_manual_otp(email, timeout=timeout, job_id=job_id)
+            pass
 
-    extra_kwargs = {}
-    if max_wait is not None:
-        extra_kwargs["max_wait"] = max_wait
-    if poll_interval is not None:
-        extra_kwargs["poll_interval"] = poll_interval
-    if settle_seconds is not None:
-        extra_kwargs["settle_seconds"] = settle_seconds
+    # 3) generic_api 约定拼接
+    if src == "generic_api":
+        try:
+            return db._build_generic_api_code_url(target) or ""
+        except Exception:
+            return ""
+    return ""
 
-    # 查活等已注册账号会传入注册时保存的来源；即使调用方没有显式传入，
-    # 这里也先读取账号落库来源，再按当前进程上下文/邮箱池/全局配置兜底。
-    source = (
-        _normalize_explicit_email_source(email_source)
-        or _registered_email_source(email)
-        or resolve_email_source(email)
-    )
+
+def _dispatch_auto_otp(source: str, email: str, after_ts: float, extra_kwargs: dict) -> str:
+    """按来源分发到具体邮箱客户端取码（自动路径）。"""
     if source == "gptmail":
         from core.gptmail_client import fetch_latest_otp
         return fetch_latest_otp(email, after_ts=after_ts, **extra_kwargs)
@@ -272,6 +308,119 @@ def wait_for_otp(
         return fetch_latest_otp(email, after_ts=after_ts, **extra_kwargs)
     from core.outlook_client import fetch_latest_otp
     return fetch_latest_otp(email, after_ts=after_ts, **extra_kwargs)
+
+
+def _wait_manual_input(
+    email: str,
+    *,
+    source: str,
+    reason: str,
+    purpose: str | None,
+    timeout: int,
+) -> str:
+    """自动取码失败后转入人工输入，等待用户提交验证码。"""
+    from core.manual_otp import request_manual_otp
+
+    job_id = None
+    try:
+        from core import registration_service as svc
+        job_id = getattr(svc._THREAD_CTX, "job_id", None)
+    except Exception:
+        job_id = None
+
+    code_url = resolve_code_url(email, source)
+    label = purpose or "邮箱验证码"
+    logger.warning(
+        "[OTP] 自动取码失败，转为人工输入：email=%s 用途=%s 原因=%s 等待=%ss",
+        email, label, str(reason)[:160], timeout,
+    )
+    return request_manual_otp(
+        email,
+        timeout=timeout,
+        job_id=job_id,
+        purpose=label,
+        title=f"需要手动输入验证码（{label}）",
+        code_url=code_url,
+        source=source,
+        task=label,
+        extra={"auto_error": str(reason)[:400]},
+    )
+
+
+def wait_for_otp(
+    email: str,
+    after_ts: float,
+    max_wait: int | None = None,
+    poll_interval: int | None = None,
+    settle_seconds: int | None = None,
+    email_source: str | None = None,
+    force_service: bool = False,
+    purpose: str | None = None,
+) -> str:
+    """等待并返回该邮箱最新的 ChatGPT OTP（6 位数字字符串）。
+
+    - USE_EMAIL_SERVICE=False 时走手动验证码通道（WebUI 提交 / CLI 输入），
+      不再强制要求 Outlook clientId/refreshToken。
+    - 自动取码失败/超时时，若开启 MANUAL_OTP_FALLBACK，则转为人工输入：
+      页面弹出输入框提醒用户填码，提交后本函数返回该码，流程继续。
+    """
+    try:
+        from config import email as _email_cfg
+        use_service = bool(getattr(_email_cfg, "USE_EMAIL_SERVICE", True))
+    except Exception:
+        use_service = True
+
+    if not use_service and not force_service:
+        from core.manual_otp import wait_for_manual_otp
+        from config import email as _email_cfg
+        timeout = int(max_wait if max_wait is not None else (getattr(_email_cfg, "OTP_MAX_WAIT", 180) or 180))
+        job_id = None
+        try:
+            from core import registration_service as svc
+            job_id = getattr(svc._THREAD_CTX, "job_id", None)
+        except Exception:
+            job_id = None
+        return wait_for_manual_otp(
+            email,
+            timeout=timeout,
+            job_id=job_id,
+            purpose=purpose or "邮箱验证码",
+            title=f"需要手动输入验证码（{purpose or '邮箱验证码'}）",
+            code_url=resolve_code_url(email, email_source),
+            source=_normalize_explicit_email_source(email_source) or "",
+        )
+
+    extra_kwargs = {}
+    if max_wait is not None:
+        extra_kwargs["max_wait"] = max_wait
+    if poll_interval is not None:
+        extra_kwargs["poll_interval"] = poll_interval
+    if settle_seconds is not None:
+        extra_kwargs["settle_seconds"] = settle_seconds
+
+    # 查活等已注册账号会传入注册时保存的来源；即使调用方没有显式传入，
+    # 这里也先读取账号落库来源，再按当前进程上下文/邮箱池/全局配置兜底。
+    source = (
+        _normalize_explicit_email_source(email_source)
+        or _registered_email_source(email)
+        or resolve_email_source(email)
+    )
+
+    manual_enabled, manual_timeout = _manual_fallback_settings()
+    try:
+        return _dispatch_auto_otp(source, email, after_ts, extra_kwargs)
+    except Exception as exc:
+        # 账号废弃、任务被停止等属于「人工也救不回」的失败，保持原样抛出。
+        if not manual_enabled or not str(email or "").strip() or type(exc).__name__ in _NO_MANUAL_FALLBACK_EXC:
+            raise
+        return _wait_manual_input(
+            email,
+            source=source,
+            reason=f"{type(exc).__name__}: {exc}",
+            purpose=purpose,
+            timeout=manual_timeout,
+        )
+
 
 
 def email_material_line(email: str, source: str | None = None) -> str:
@@ -349,3 +498,55 @@ def release_email_if_unconsumed(email: str, note: str | None = None) -> bool:
     if changed:
         logger.info("[EmailProvider] 已回收未消耗邮箱: source=%s, email=%s", source, email)
     return changed
+
+
+#: 换绑释放的原邮箱能回到本地邮箱池的来源；其余为远端临时邮箱，本地无池记录。
+POOL_RECYCLE_SOURCES = ("outlook", "generic_api", "imap", "cloudflare_domain")
+
+
+def recycle_released_email(
+    email: str,
+    source: str | None = None,
+    *,
+    credentials: dict | None = None,
+    account_id: int | None = None,
+    note: str | None = None,
+) -> dict:
+    """换绑成功后把原邮箱按**换绑前**的来源放回邮箱池。
+
+    换绑成功后原邮箱已被服务端释放，可以重新用于注册，所以要把领取时被标记为
+    used 的池记录放回 available。三处细节必须区分对待：
+
+    1. 来源用调用方显式传入的 ``source``（换绑前的 ``account.email_source``），
+       不能再用 ``resolve_email_source`` 现猜：换绑会把账号来源改写成新邮箱的
+       来源，且临时邮箱上下文会随进程变化，猜错就会把邮箱记到别的来源上。
+    2. 池内来源（outlook / generic_api / imap / cloudflare_domain）复位为
+       available；临时邮箱来源本地没有池记录，直接 skipped，不伪造记录。
+    3. 池记录缺失时只有 outlook（账号里存了同一份凭证）和域名邮箱（只需地址）
+       能重建，其余来源的连接配置只存在于池记录里，只能 skipped 并说明原因。
+
+    返回 db.recycle_email_to_pool 的结果字典 ``{"ok", "source", "mode", "message"}``。
+    """
+    from core import db
+
+    target = str(email or "").strip()
+    normalized = _normalize_explicit_email_source(source)
+    if normalized is None:
+        # 账号没落库来源时才按地址反查，仅作兜底（可能受进程内临时邮箱上下文影响）。
+        normalized = resolve_email_source(target)
+    if note is None:
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        note = f"账号 #{int(account_id)} 换绑释放，{stamp}" if account_id else f"换绑释放，{stamp}"
+
+    result = db.recycle_email_to_pool(target, normalized, note=note, credentials=credentials)
+    if result.get("ok"):
+        logger.info(
+            "[EmailProvider] 换绑释放的原邮箱已回池: source=%s, mode=%s, email=%s",
+            result.get("source"), result.get("mode"), target,
+        )
+    else:
+        logger.info(
+            "[EmailProvider] 换绑释放的原邮箱未回池: source=%s, email=%s, reason=%s",
+            result.get("source"), target, result.get("message"),
+        )
+    return result

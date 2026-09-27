@@ -18,7 +18,7 @@ _LOADED = False
 
 # 这些多行列表字段允许用空值显式覆盖为 []。
 # 例如 WebUI 清空代理池后会写入 PROXY_POOL="" / PROXY_POOL="[]"，不能再回退到源码默认本地代理。
-EXPLICIT_EMPTY_LIST_ENV_KEYS = {"PROXY_POOL"}
+EXPLICIT_EMPTY_LIST_ENV_KEYS = {"PROXY_POOL", "PLAN_CHECK_PROXY", "EMAIL_CHANGE_PROXY_POOL"}
 
 # 统一管理：env key -> 说明（.env.example 用）
 SECRET_ENV_KEYS: dict[str, str] = {
@@ -28,6 +28,9 @@ SECRET_ENV_KEYS: dict[str, str] = {
     "SKYVERN_API_KEY": "Skyvern API Key",
     "ROXY_API_TOKEN": "RoxyBrowser 本地 API Token",
     "PLAN_CHECK_PROXY": "套餐查询专用代理（可能包含认证信息）",
+    "PROXY_POOL": "默认分组代理池（可能包含认证信息）",
+    "PROXY_GROUPS": "命名分组代理池（可能包含认证信息）",
+    "EMAIL_CHANGE_PROXY_POOL": "邮箱换绑专用代理池（可能包含认证信息）",
     "QQ_IMAP_PASSWORD": "QQ 邮箱 IMAP 授权码（不是 QQ 密码）",
     "GPTMAIL_API_KEY": "GPTMail API Key",
     "CLOUDFLARE_API_KEY": "Cloudflare Worker 临时邮箱 API Key / ADMIN_PASSWORD",
@@ -198,6 +201,28 @@ def _coerce_env_value(raw: str, default, vtype: str | None = None):
         except Exception:
             pass
         return [line.strip() for line in text.splitlines() if line.strip()]
+    if vtype == "proxy_groups":
+        # 多分组代理文本（INI 风格），解析逻辑统一放在 config.proxy 里，
+        # 避免这里和运行时代码各写一份解析器。
+        import json
+        text = str(raw)
+        try:
+            import ast
+            val = ast.literal_eval(text)
+            if isinstance(val, dict):
+                return {str(k): list(v) if isinstance(v, (list, tuple)) else [v] for k, v in val.items()}
+        except Exception:
+            pass
+        stripped = text.strip()
+        if stripped.startswith("{"):
+            try:
+                val = json.loads(stripped)
+                if isinstance(val, dict):
+                    return {str(k): list(v) if isinstance(v, (list, tuple)) else [v] for k, v in val.items()}
+            except Exception:
+                pass
+        from config import proxy as _proxy_cfg
+        return _proxy_cfg.parse_proxy_groups_text(text)
     return str(raw).strip()
 
 

@@ -38,14 +38,31 @@ def _append_log(email: str, line: str, *, clear: bool = False) -> None:
         f.write(f"{stamp} [INFO] {line}\n")
 
 
-def _run_live_check(*, account_id: int, email: str, proxy: str | None, trigger: str) -> dict:
+def _run_live_check(*, account_id: int, email: str, proxy: str | None, trigger: str, proxy_group: str = "") -> dict:
+    group_name = str(proxy_group or "").strip()
+    group_pool: list[str] | None = None
+    if group_name:
+        try:
+            from config.proxy import resolve_group_pool
+
+            group_pool = resolve_group_pool(group_name)
+        except Exception:
+            group_pool = None
     try:
         with _LOCK:
             _RUNNING.add(int(account_id))
         if not db.mark_account_live_check_running(account_id):
             _append_log(email, "[查活] 账号已删除或查活状态已被重置，取消执行")
             return {"ok": False, "status": "failed", "error": "账号已删除或查活状态已被重置"}
-        route = resolve_plan_check_route(explicit_proxy=proxy)
+        # 手动选中的代理分组优先级最高：显式分组 > 全局套餐查询网络模式。
+        route = resolve_plan_check_route(explicit_proxy=proxy, pool=group_pool)
+        if group_name:
+            if group_pool:
+                _append_log(email, f"[查活] 使用指定代理分组「{group_name}」（{len(group_pool)} 个出口）")
+            elif group_pool == []:
+                _append_log(email, f"[查活] 代理分组「{group_name}」为空，已回退全局网络配置")
+            else:
+                _append_log(email, f"[查活] 代理分组「{group_name}」不存在，已回退全局网络配置")
         selected_proxy = route.get("proxy")
         # 查活必须沿用账号注册时记录的邮箱来源。不能只调用
         # resolve_email_source(email)：Remail 等临时邮箱的上下文只在领取进程
@@ -129,7 +146,14 @@ def _run_live_check(*, account_id: int, email: str, proxy: str | None, trigger: 
         _QUEUE_SLOTS.release()
 
 
-def enqueue_account_live_check(*, account_id: int, email: str, trigger: str = "manual", proxy: str | None = None) -> dict:
+def enqueue_account_live_check(
+    *,
+    account_id: int,
+    email: str,
+    trigger: str = "manual",
+    proxy: str | None = None,
+    proxy_group: str = "",
+) -> dict:
     account_id = int(account_id)
     email = str(email or "").strip()
     if not email:
@@ -148,6 +172,7 @@ def enqueue_account_live_check(*, account_id: int, email: str, trigger: str = "m
             email=email,
             proxy=proxy,
             trigger=str(trigger or "manual"),
+            proxy_group=str(proxy_group or ""),
         )
     except Exception as exc:
         _QUEUE_SLOTS.release()

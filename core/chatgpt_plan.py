@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 from urllib.parse import quote, urlparse
 
+from core.plan_activity import describe_activity
 from core.session import BrowserSession
 
 logger = logging.getLogger(__name__)
@@ -76,10 +77,17 @@ def _local_proxy_status(proxy: str) -> tuple[bool, bool, str | None]:
         return False, False, f"代理地址解析失败（{type(exc).__name__}）"
 
 
-def resolve_plan_check_route(explicit_proxy: Optional[str] = None) -> dict:
-    """解析套餐查询的实际网络路径。
+def resolve_plan_check_route(
+    explicit_proxy: Optional[str] = None,
+    *,
+    pool: Optional[list] = None,
+) -> dict:
+    """解析套餐查询（以及查活）的实际网络路径。
 
     explicit_proxy 不是 None 时表示 API 调用方明确覆盖配置；空字符串代表直连。
+
+    pool 不是 None 时表示调用方（WebUI 上选中的代理分组）明确指定了代理池，
+    此时优先级最高：不再看 PLAN_CHECK_PROXY_MODE，也不再读全局 PLAN_CHECK_PROXY。
     """
     if explicit_proxy is not None:
         selected = str(explicit_proxy or "").strip()
@@ -93,6 +101,32 @@ def resolve_plan_check_route(explicit_proxy: Optional[str] = None) -> dict:
 
     from config import proxy as proxy_cfg
 
+    group_pool: Optional[list[str]] = None
+    if pool is not None:
+        raw_pool = [pool] if isinstance(pool, str) else list(pool)
+        # 一个反斜杠转义的空串表示"明确直连"，其余情况按代理池处理。
+        group_pool = [str(p or "").strip() for p in raw_pool if str(p or "").strip()]
+
+    if group_pool is not None:
+        if not group_pool:
+            return {
+                "proxy": "",
+                "proxy_mode": "group",
+                "network_route": "direct",
+                "proxy_used": None,
+                "proxy_fallback_reason": "指定代理分组为空，已直连",
+                "proxy_group_used": None,
+            }
+        selected = str(proxy_cfg.pick_proxy(pool=group_pool) or "").strip()
+        return {
+            "proxy": selected,
+            "proxy_mode": "group",
+            "network_route": "proxy" if selected else "direct",
+            "proxy_used": _mask_proxy(selected) or None,
+            "proxy_fallback_reason": None,
+            "proxy_group_used": len(group_pool),
+        }
+
     mode = str(getattr(proxy_cfg, "PLAN_CHECK_PROXY_MODE", "auto") or "auto").strip().lower()
     if mode not in {"auto", "proxy", "direct"}:
         raise ValueError(f"PLAN_CHECK_PROXY_MODE={mode!r} 无效，可选 auto / proxy / direct")
@@ -105,7 +139,13 @@ def resolve_plan_check_route(explicit_proxy: Optional[str] = None) -> dict:
             "proxy_fallback_reason": None,
         }
 
-    selected = str(getattr(proxy_cfg, "PLAN_CHECK_PROXY", "") or "").strip()
+    plan_pool = getattr(proxy_cfg, "PLAN_CHECK_PROXY", []) or []
+    if isinstance(plan_pool, str):
+        plan_pool = [plan_pool]
+    selected = ""
+    if [str(p or "").strip() for p in plan_pool if str(p or "").strip()]:
+        # 支持多代理池：每次从池中随机选一个健康出口（自适应冷却与通用池共享）。
+        selected = str(proxy_cfg.pick_proxy(pool=plan_pool) or "").strip()
     if not selected:
         selected = str(proxy_cfg.pick_proxy() or "").strip()
     if not selected:
@@ -230,6 +270,15 @@ def parse_accounts_check(data: dict, *, token: str = "") -> dict:
     is_free = str(plan_type).lower() == "free" or str(subscription_plan).lower() == "chatgptfreeplan"
     plus_trial_eligible = bool(is_free and plus_campaign)
 
+    # Plus 活动：同一账号在不同出口地区拿到的活动可能不同（1 个月免费 / 半价…），
+    # 账号列表按代理分组展示时靠这几个字段区分。
+    activity = describe_activity(
+        (plus_campaign or {}).get("id") if plus_trial_eligible else None,
+        discount_percentage=discount.get("percentage"),
+        num_periods=duration.get("num_periods"),
+        period=duration.get("period"),
+    )
+
     offers = ((item.get("eligible_offers") or {}).get("offers") or [])
     eligible_offer_ids = [o.get("id") for o in offers if isinstance(o, dict) and o.get("id")]
 
@@ -264,6 +313,9 @@ def parse_accounts_check(data: dict, *, token: str = "") -> dict:
         "plus_trial_duration_num_periods": duration.get("num_periods"),
         "plus_trial_duration_period": duration.get("period"),
         "plus_trial_promotion_type_label": plus_meta.get("promotion_type_label"),
+        "plan_activity_id": (activity or {}).get("id"),
+        "plan_activity_short": (activity or {}).get("short"),
+        "plan_activity_title": (activity or {}).get("title"),
         "eligible_offer_ids": eligible_offer_ids,
         "features_count": len(item.get("features") or []),
         "can_access_with_session": bool(item.get("can_access_with_session")),
@@ -338,6 +390,7 @@ def check_account_plan(
     token: str,
     *,
     proxy: Optional[str] = None,
+    pool: Optional[list] = None,
     timezone_offset_min: str = "-",
     timeout: float | None = None,
     max_attempts: int | None = None,
@@ -358,7 +411,7 @@ def check_account_plan(
         }
 
     try:
-        route = resolve_plan_check_route(proxy)
+        route = resolve_plan_check_route(proxy, pool=pool)
     except Exception as exc:
         return {
             "ok": False,

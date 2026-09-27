@@ -143,6 +143,16 @@ def _warm_login_fingerprint_context(session: BrowserSession) -> None:
         if url is not None and not isinstance(url, str):
             url = getattr(url, "url", None)
         detail = f"stage={stage} status={status or '?'} url={url or '?'}"
+        # 区分「Cloudflare JS 挑战」与真正的 403 封禁。带 cf-mitigated=challenge 的
+        # 403 说明出口 IP 信誉或 TLS 指纹不匹配，此时同一会话原地重试必然重复失败，
+        # 必须换指纹/换出口；把该标志带进错误文本，账号列表里能直接看出来。
+        cf_mitigated = ""
+        try:
+            cf_mitigated = str((getattr(response, "headers", None) or {}).get("cf-mitigated") or "")
+        except Exception:
+            cf_mitigated = ""
+        if cf_mitigated:
+            detail += f" cf-mitigated={cf_mitigated}（CF 挑战：出口 IP 信誉或 TLS 指纹不匹配）"
         raise RuntimeError(
             f"Recent Login 预热失败：{detail} error={type(exc).__name__}: {str(exc)[:240]}"
         ) from exc
@@ -352,6 +362,81 @@ def _follow_continue_and_fetch(session: BrowserSession, continue_url: str, *, re
     raise RuntimeError("查活 Session/AT 拉取重试耗尽")
 
 
+def _is_mfa_step(result: dict | None, continue_url: str) -> bool:
+    """判断上一步响应是否落在 MFA challenge 上。"""
+    page = result.get("page") if isinstance(result, dict) else {}
+    page = page if isinstance(page, dict) else {}
+    page_type = str(page.get("type") or "")
+    return "/mfa-challenge/" in str(continue_url or "") or page_type == "mfa_challenge"
+
+
+def _maybe_complete_mfa(
+    session: BrowserSession,
+    email: str,
+    result: dict | None,
+    continue_url: str,
+    *,
+    stage: str,
+) -> dict | None:
+    """上一步若进入 MFA challenge，则用账号 totp_secret 完成 TOTP 并返回 session。
+
+    不属于 MFA 步骤时返回 None，调用方继续原有流程。
+
+    注意：密码登录和邮箱 OTP 登录都可能被服务端追加 MFA 挑战（账号开启 2FA 后
+    login_or_signup 会在任意登录方式后插入 mfa-challenge）。两处必须共用本函数，
+    否则某个登录分支会停在 mfa-challenge 页面上，随后拉 session 只能拿到
+    「没有 accessToken」的假失败。
+    """
+    if not _is_mfa_step(result, continue_url):
+        return None
+
+    url = str(continue_url or "")
+    factor_id = _extract_factor_id(result, url)
+    if not factor_id:
+        raise RuntimeError(f"{stage}后进入 MFA 但未拿到 factor_id: {result}")
+    if not _account_totp_secret(email):
+        raise RuntimeError(f"{stage}后进入 MFA，但账号没有 totp_secret：{email}")
+
+    logger.info("[查活] 已进入 MFA challenge（%s），开始提交 TOTP：%s factor_id=%s", stage, email, factor_id)
+
+    last_exc: Exception | None = None
+    # TOTP 有 30s 时间窗，跨窗口边界或服务端时钟偏差会导致首次校验失败；
+    # 用新生成的验证码重试一次即可，无需重新走整条登录链。
+    for attempt in range(1, 3):
+        try:
+            _mfa_issue_challenge(session, factor_id)
+            code = _account_totp_code(email)
+            if not code:
+                raise RuntimeError(f"无法生成 TOTP 验证码：{email}")
+            mfa_result = _mfa_verify(session, factor_id, code)
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= 2:
+                raise
+            logger.warning("[查活] MFA TOTP 提交失败（%s/2），等待新时间窗后重试：%s", attempt, str(exc)[:160])
+            time.sleep(4)
+            continue
+        mfa_continue_url = _extract_continue_url(mfa_result) or url
+        if not mfa_continue_url:
+            raise RuntimeError(f"MFA 验证成功但没有 continue_url: {mfa_result}")
+        human_delay("api")
+        return _follow_continue_and_fetch(
+            session,
+            mfa_continue_url,
+            referer=f"https://auth.openai.com/mfa-challenge/{factor_id}",
+        )
+    raise last_exc if last_exc else RuntimeError("MFA TOTP 验证失败")
+
+
+def _password_rejected_as_otp_fallback(exc: BaseException) -> bool:
+    """密码登录被服务端明确拒绝时，允许回退邮箱 OTP 登录。
+
+    仅对凭据类错误回退；403（Cloudflare/出口拦截）、5xx、网络异常仍然抛出，
+    避免把真正的网络问题伪装成「密码不对」。
+    """
+    return _exception_status_code(exc) in (400, 401, 422)
+
+
 def _stored_access_token(email: str) -> str:
     """读取本地账号已有 AT，用于先预热登录态再走稳定的 reauth 链。"""
     try:
@@ -409,12 +494,34 @@ def _exception_status_code(exc: BaseException) -> int | None:
     return status or None
 
 
+# OpenAI 在「账号已改绑到别的邮箱」时会返回这段话。它既不是废号，也不是网络问题：
+# 账号本身还活着，只是本地记录的主邮箱已经过期，需要用换绑后的新邮箱重查。
+_EMAIL_SUPERSEDED_MARKERS = (
+    "can no longer be used to sign in",
+    "now uses a different email",
+)
+
+
+def _detect_email_superseded(text: str) -> str:
+    """识别「本地记录的邮箱已被换绑」这一类失败，并给出可操作的提示。"""
+    raw = str(text or "").lower()
+    if not raw:
+        return ""
+    if not all(marker in raw for marker in _EMAIL_SUPERSEDED_MARKERS):
+        return ""
+    return (
+        "邮箱已改绑：该账号已改用其他邮箱登录，本地记录的主邮箱已失效。"
+        "账号本身仍然存活，请把账号主邮箱更新为换绑后的新邮箱（可参考账号备注）后重新查活。"
+    )
+
+
 def _validate_reauth_with_retry(
     session: BrowserSession,
     email: str,
     otp_after_ts: float,
     max_otp_attempts: int = 3,
     email_source: str | None = None,
+    purpose_prefix: str = "查活",
 ) -> str:
     """提交 reauth OTP；验证码错误时重新发送并重新取码。"""
     current_otp: str | None = None
@@ -427,6 +534,7 @@ def _validate_reauth_with_retry(
                     email,
                     after_ts=otp_after_ts,
                     email_source=email_source,
+                    purpose=f"{purpose_prefix}-重认证验证码",
                 )
             human_delay("otp_input")
             continue_url = _validate_reauth_otp(session, current_otp)
@@ -469,6 +577,7 @@ def _login_via_reauth(
     email: str,
     otp_after_ts: float,
     email_source: str | None = None,
+    purpose_prefix: str = "查活",
 ) -> dict:
     """按 2FA 已验证链路重新认证并刷新 ChatGPT session。"""
     auth_url = _trigger_reauth_with_retry(session, email)
@@ -485,6 +594,7 @@ def _login_via_reauth(
         email,
         otp_after_ts,
         email_source=email_source,
+        purpose_prefix=purpose_prefix,
     )
     logger.info("[查活] reauth OTP 验证通过，开始交换新 token")
     human_delay("api")
@@ -500,6 +610,7 @@ def _login_via_email_otp(
     email: str,
     otp_after_ts: float,
     email_source: str | None = None,
+    purpose_prefix: str = "查活",
 ) -> dict:
     """完成邮箱 OTP 登录，并跟随 OAuth callback 后拉取 ChatGPT session。"""
     validate_result = _validate_with_retry(
@@ -507,6 +618,7 @@ def _login_via_email_otp(
         email,
         otp_after_ts,
         email_source=email_source,
+        purpose_prefix=purpose_prefix,
     )
     page = validate_result.get("page") if isinstance(validate_result, dict) else {}
     page = page if isinstance(page, dict) else {}
@@ -516,6 +628,18 @@ def _login_via_email_otp(
         raise RuntimeError(f"OTP 登录成功但没有 OAuth continue_url: {validate_result}")
     if "about-you" in str(continue_url) or page_type in {"about_you", "about-you"}:
         raise RuntimeError(f"该邮箱登录后进入资料页，疑似不是完整已注册账号: page_type={page_type}, continue_url={continue_url}")
+    # 邮箱 OTP 通过后服务端可能追加 MFA 挑战（账号已开启 2FA），必须在这里消化掉，
+    # 否则会停在 mfa-challenge 页面并错误地判定为「未拿到 accessToken」。
+    mfa_session_info = _maybe_complete_mfa(
+        session,
+        email,
+        validate_result,
+        continue_url,
+        stage="邮箱 OTP",
+    )
+    if mfa_session_info is not None:
+        logger.info("[查活] 邮箱 OTP + MFA 登录完成：%s", email)
+        return mfa_session_info
     logger.info("[查活] 邮箱 OTP 验证完成，开始跟随 OAuth callback")
     return _follow_continue_and_fetch(session, continue_url, referer="https://auth.openai.com/email-verification")
 
@@ -525,9 +649,20 @@ def _login_via_password_or_otp(
     email: str,
     otp_after_ts: float,
     email_source: str | None = None,
+    purpose_prefix: str = "查活",
+    landing_url: str = "",
 ) -> dict:
-    """优先密码登录；如进入 MFA challenge 则自动用 TOTP 完成。"""
+    """按 authorize 落点页选择登录方式，并在需要时用 TOTP 完成 MFA。
+
+    落点页是服务端对「这个账号该用哪种方式登录」的表态：
+      * /log-in/password     → 服务端期望密码登录
+      * /email-verification  → 服务端期望邮箱 OTP（此时对 password/verify 发请求会 400）
+    因此优先依据落点页决定，其次才看本地是否存有注册密码。
+    """
     password = _account_registration_password(email)
+    landed_on_password = "/log-in/password" in str(landing_url or "")
+    landed_on_otp = "email-verification" in str(landing_url or "")
+
     if not password:
         logger.info("[查活] 未找到注册密码，继续使用邮箱 OTP：%s", email)
         return _login_via_email_otp(
@@ -535,37 +670,60 @@ def _login_via_password_or_otp(
             email,
             otp_after_ts,
             email_source=email_source,
+            purpose_prefix=purpose_prefix,
+        )
+
+    if landed_on_otp and not landed_on_password:
+        # 有密码但服务端已经把我们带到邮箱验证页：此时发 password/verify 会被
+        # 判为状态不匹配（400），直接走邮箱 OTP。
+        logger.info("[查活] authorize 落在邮箱验证页，忽略本地密码，改走邮箱 OTP：%s", email)
+        return _login_via_email_otp(
+            session,
+            email,
+            otp_after_ts,
+            email_source=email_source,
+            purpose_prefix=purpose_prefix,
         )
 
     logger.info("[查活] 账号存在密码，优先走密码登录：%s", email)
-    password_result = _password_verify(session, password)
+    try:
+        password_result = _password_verify(session, password)
+    except Exception as exc:
+        if not _password_rejected_as_otp_fallback(exc):
+            raise
+        logger.warning(
+            "[查活] 密码登录被拒（%s: %s），回退邮箱 OTP：%s",
+            _exception_status_code(exc) or type(exc).__name__,
+            str(exc)[:160],
+            email,
+        )
+        try:
+            send_email_otp(session)
+        except Exception as send_exc:
+            logger.warning("[查活] 回退邮箱 OTP 时重新发送验证码失败（忽略）：%s", str(send_exc)[:160])
+        return _login_via_email_otp(
+            session,
+            email,
+            max(otp_after_ts, time.time()),
+            email_source=email_source,
+            purpose_prefix=purpose_prefix,
+        )
+
     continue_url = _extract_continue_url(password_result)
     page = password_result.get("page") if isinstance(password_result, dict) else {}
     page = page if isinstance(page, dict) else {}
+
+    mfa_session_info = _maybe_complete_mfa(
+        session,
+        email,
+        password_result,
+        continue_url,
+        stage="密码登录",
+    )
+    if mfa_session_info is not None:
+        return mfa_session_info
+
     page_type = str(page.get("type") or "")
-
-    if "/mfa-challenge/" in continue_url or page_type == "mfa_challenge":
-        factor_id = _extract_factor_id(password_result, continue_url)
-        secret = _account_totp_secret(email)
-        if not factor_id:
-            raise RuntimeError(f"密码登录后进入 MFA 但未拿到 factor_id: {password_result}")
-        if not secret:
-            raise RuntimeError(f"密码登录后进入 MFA，但账号没有 totp_secret：{email}")
-        logger.info("[查活] 已进入 MFA challenge，开始提交 TOTP：%s factor_id=%s", email, factor_id)
-        _mfa_issue_challenge(session, factor_id)
-        code = _account_totp_code(email)
-        if not code:
-            raise RuntimeError(f"无法生成 TOTP 验证码：{email}")
-        mfa_result = _mfa_verify(session, factor_id, code)
-        mfa_continue_url = _extract_continue_url(mfa_result) or continue_url
-        if not mfa_continue_url:
-            raise RuntimeError(f"MFA 验证成功但没有 continue_url: {mfa_result}")
-        return _follow_continue_and_fetch(
-            session,
-            mfa_continue_url,
-            referer=f"https://auth.openai.com/mfa-challenge/{factor_id}",
-        )
-
     if "email-verification" in continue_url or page_type in {"email_verification", "email_otp_send"}:
         logger.info("[查活] 密码登录后仍进入邮箱 OTP，继续完成邮箱验证：%s", email)
         return _login_via_email_otp(
@@ -573,6 +731,7 @@ def _login_via_password_or_otp(
             email,
             otp_after_ts,
             email_source=email_source,
+            purpose_prefix=purpose_prefix,
         )
 
     if continue_url:
@@ -603,11 +762,13 @@ def _login_via_full_web_flow(
             f"账号已废弃（{dead_code}）",
             error_code=dead_code,
         )
+    logger.info("[查活] authorize 落点页：%s", str(final_url or "")[:160])
     session_info = _login_via_password_or_otp(
         session,
         email,
         otp_after_ts,
         email_source=email_source,
+        landing_url=str(final_url or ""),
     )
     return session, session_info
 
@@ -629,6 +790,7 @@ def _validate_with_retry(
     otp_after_ts: float,
     max_otp_attempts: int = 3,
     email_source: str | None = None,
+    purpose_prefix: str = "查活",
 ) -> dict:
     current_otp = None
     last_exc: Exception | None = None
@@ -640,6 +802,7 @@ def _validate_with_retry(
                     email,
                     after_ts=otp_after_ts,
                     email_source=email_source,
+                    purpose=f"{purpose_prefix}-登录验证码",
                 )
             result = validate_email_otp(session, current_otp, sentinel_header=None, so_header=None)
             return result
@@ -805,6 +968,10 @@ def check_account_liveness(
         if code:
             logger.warning("[查活] 已废号：%s %s", email, code)
             return {"ok": False, "status": "deactivated", "checked_at": checked_at, "error": code}
+        superseded = _detect_email_superseded(_exception_response_text(exc)) or _detect_email_superseded(str(exc))
+        if superseded:
+            logger.warning("[查活] 邮箱已改绑：%s %s", email, superseded)
+            return {"ok": False, "status": "failed", "checked_at": checked_at, "error": superseded}
         logger.warning("[查活] 失败：%s %s: %s", email, type(exc).__name__, str(exc)[:260])
         return {"ok": False, "status": "failed", "checked_at": checked_at, "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
     finally:

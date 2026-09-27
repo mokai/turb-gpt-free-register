@@ -1665,6 +1665,9 @@ def run_codex_oauth(
         if oauth_driver in ("roxy", "roxybrowser", "fingerprint", "browser"):
             from core.roxy_codex_oauth import run_roxy_codex_oauth
             return run_roxy_codex_oauth(email, otp_provider=otp_provider, proxy=proxy, force=True)
+        if oauth_driver in ("bit", "bitbrowser"):
+            from core.bitbrowser_codex_oauth import run_bit_codex_oauth
+            return run_bit_codex_oauth(email, otp_provider=otp_provider, proxy=proxy, force=True)
         if oauth_driver in ("browser_use", "browseruse", "browser-use", "bu"):
             from core.browser_use_codex_oauth import run_browser_use_codex_oauth
             return run_browser_use_codex_oauth(email, otp_provider=otp_provider, proxy=proxy, force=True)
@@ -1694,7 +1697,7 @@ def run_codex_oauth(
                     except Exception:
                         pass
         if oauth_driver not in ("protocol", "api", "http"):
-            raise RuntimeError(f"[Codex] 不支持的 CODEX_OAUTH_DRIVER={oauth_driver!r}，可选 protocol / roxy / cloak / browser_use / skyvern")
+            raise RuntimeError(f"[Codex] 不支持的 CODEX_OAUTH_DRIVER={oauth_driver!r}，可选 protocol / roxy / bit / cloak / browser_use / skyvern")
     except ImportError:
         # 没装 selenium / 未提供 roxy 配置时继续走协议模式，保持旧行为。
         pass

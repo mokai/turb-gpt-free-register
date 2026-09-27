@@ -10,6 +10,11 @@ class CloudflareWebUiTests(unittest.TestCase):
     def setUp(self):
         self.client = create_app(auth_code="test-auth").test_client()
         self.client.environ_base["HTTP_X_AUTH_CODE"] = "test-auth"
+        # /api/jobs 提交前会预检「本地指纹浏览器客户端」（REGISTRATION_DRIVER=bit/roxy）：
+        # 单测环境没有本地客户端，这里统一放行，避免掩盖这些用例真正要验证的邮箱源校验。
+        patcher = patch("core.browser_client_ready.check_registration_driver", return_value=None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     @patch("webui.app.svc.submit_registration")
     def test_jobs_rejects_cloudflare_without_api_base(self, submit_registration):

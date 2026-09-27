@@ -96,6 +96,20 @@ class ConfigDefaultFallbackTests(unittest.TestCase):
         self.assertEqual(fields["BROWSER_JS_COVERAGE_LOG"]["type"], "bool")
         self.assertEqual(fields["BROWSER_JS_COVERAGE_MAX_ENTRIES"]["type"], "int")
 
+    def test_webui_exposes_cf_challenge_manual_settings(self):
+        fields = {field["key"]: field for field in config_editor.EDITABLE_FIELDS}
+        self.assertEqual(fields["CF_CHALLENGE_MANUAL_WAIT"]["type"], "bool")
+        self.assertEqual(fields["CF_CHALLENGE_POLL_INTERVAL"]["type"], "int")
+        self.assertEqual(fields["CF_CHALLENGE_MANUAL_WAIT"]["group"], "风控 / 人工处理")
+        # 人工介入超时与"自动取码失败转手动输入验证码"共用同一个配置，且放在「注册方式」分组
+        self.assertEqual(fields["MANUAL_OTP_TIMEOUT"]["group"], "注册方式")
+        self.assertEqual(fields["MANUAL_OTP_TIMEOUT"]["label"], "人工介入超时时间")
+        self.assertEqual(fields["MANUAL_OTP_TIMEOUT"]["file"], "email.py")
+
+    def test_cf_challenge_defaults(self):
+        self.assertTrue(browser.CF_CHALLENGE_MANUAL_WAIT)
+        self.assertEqual(browser.CF_CHALLENGE_POLL_INTERVAL, 5)
+
     def test_browser_data_saver_defaults_block_google_gsi(self):
         with _browser_source_defaults():
             self.assertIn(

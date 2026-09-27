@@ -680,6 +680,44 @@ def import_from_file(path: str | Path | None = None) -> tuple[int, int]:
     return import_generic_api_emails(records)
 
 
+def _parse_remail_pickup_url(code_url: str) -> tuple[str, str] | None:
+    """识别 Remail 的网页取件地址，返回 ``(email, service_token)``。
+
+    Remail 给出两种取件入口：
+      * 网页：``https://<host>/pickup?email=...&token=st_...``（前端 SPA，
+        HTML 里没有任何验证码，直接抓页面永远是"未提取到 6 位验证码"）；
+      * 开放 API：``GET /v1/pickup?email=...&token=...``，返回 JSON 且带
+        ``verificationCode`` 字段。
+
+    导入账号（``original_email_line`` / ``code_url``）保存的是网页地址，因此这里
+    把其中的 email + token 解析出来，交给 Remail 客户端走开放 API 取码。
+    """
+    try:
+        parsed = urlparse(str(code_url or "").strip())
+    except Exception:
+        return None
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return None
+    # 主机名以 remail 开头/包含 remail 视为 Remail；同时也接受用户自定义的
+    # REMAIL_API_BASE 主机（自建或换域名时主机名可能不含 remail）。
+    if "remail" not in host:
+        try:
+            configured = urlparse(str(getattr(_email_cfg, "REMAIL_API_BASE", "") or "").strip()).hostname
+        except Exception:
+            configured = None
+        if not configured or host != str(configured).lower():
+            return None
+    if (parsed.path or "").rstrip("/").lower() != "/pickup":
+        return None
+    query = dict(parse_qsl(parsed.query, keep_blank_values=False))
+    email = str(query.get("email") or "").strip()
+    token = str(query.get("token") or "").strip()
+    if not email or not token:
+        return None
+    return email, token
+
+
 def get_account_context(email: str) -> GenericApiEmailAccount | None:
     if email in _CONTEXT_CACHE:
         return _CONTEXT_CACHE[email]
@@ -744,6 +782,34 @@ def fetch_latest_otp(
     account = get_account_context(email)
     if account is None:
         raise GenericApiMailError(f"通用 API 邮箱不存在或未导入: {email}")
+
+    # Remail 的网页取件地址是 SPA，抓页面拿不到验证码；识别出来后改用其开放 API。
+    remail_pickup = _parse_remail_pickup_url(account.code_url)
+    if remail_pickup:
+        pickup_email, pickup_token = remail_pickup
+        if pickup_email.casefold() != str(email).strip().casefold():
+            # token 只对地址里的那个邮箱有效；不匹配时绝不能拿它取码，否则会把
+            # 其他邮箱的验证码当成当前账号的验证码返回。
+            logger.warning(
+                "[GenericAPI] Remail 取件地址与账号邮箱不一致，已忽略该 token：url_email=%s account=%s",
+                pickup_email,
+                email,
+            )
+        else:
+            from core.remail_client import RemailError, fetch_latest_otp as remail_fetch_latest_otp
+
+            logger.info("[GenericAPI] 识别为 Remail 网页取件地址，改用 Remail 开放 API 取码: %s", email)
+            try:
+                return remail_fetch_latest_otp(
+                    email,
+                    after_ts=after_ts,
+                    max_wait=max_wait,
+                    poll_interval=poll_interval,
+                    settle_seconds=settle_seconds,
+                    service_token=pickup_token,
+                )
+            except RemailError as exc:
+                raise GenericApiMailError(f"等待通用 API 验证码超时: {email}; {exc}") from exc
 
     deadline = time.time() + (max_wait or _email_cfg.OTP_MAX_WAIT)
     interval = poll_interval or _email_cfg.OTP_POLL_INTERVAL

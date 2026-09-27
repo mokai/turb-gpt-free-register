@@ -22,6 +22,27 @@ class EmailChangeTests(unittest.TestCase):
             "_SQLITE_READY": False, "_SQLITE_READY_PATH": None,
         }
 
+    def test_change_pool_preferred_for_change_requests(self):
+        with patch.object(
+            email_change_service, "_change_proxy_pool", return_value=["http://change-a:1", "http://change-b:2"],
+        ), patch.object(email_change_service._proxy_cfg, "pick_proxy", return_value="http://change-a:1") as pick:
+            proxy = email_change_service._pick_route_proxy(set())
+        self.assertEqual(proxy, "http://change-a:1")
+        self.assertEqual(pick.call_args.kwargs.get("pool"), ["http://change-a:1", "http://change-b:2"])
+
+    def test_liveness_routes_use_generic_pool_when_change_pool_set(self):
+        with patch.object(
+            email_change_service, "_change_proxy_pool", return_value=["http://change-a:1"],
+        ), patch.object(
+            email_change_service._proxy_cfg, "pick_proxy", return_value="http://generic:1",
+        ) as pick:
+            proxy = email_change_service._pick_route_proxy(set(), use_change_pool=False)
+            initial = email_change_service._pick_route_proxy(set(), use_change_pool=True)
+        self.assertEqual(proxy, "http://generic:1")
+        self.assertNotIn("pool", pick.call_args_list[0].kwargs)
+        self.assertEqual(pick.call_args_list[1].kwargs.get("pool"), ["http://change-a:1"])
+        self.assertEqual(initial, "http://generic:1")
+
     def test_finish_keeps_original_and_switches_current_email(self):
         with tempfile.TemporaryDirectory() as td, patch.multiple(db, **self.storage(Path(td))):
             account_id = db.insert_account(email="old@example.com", access_token="old-token", email_source="outlook")
@@ -58,12 +79,15 @@ class EmailChangeTests(unittest.TestCase):
         self.assertTrue(result["accepted"])
         enqueue.assert_called_once_with(
             account_id=12, email="new@example.com", trigger="email_change_auto", proxy=None,
+            proxy_group="",
         )
 
     def test_transport_error_switches_session_and_retries(self):
         first, second = MagicMock(), MagicMock()
         with patch.object(email_change_service, "_post", side_effect=[OSError("curl 35 reset"), {"success": True}]) as post, \
              patch.object(email_change_service, "_new_session", return_value=second) as new_session, \
+             patch.object(email_change_service, "_change_proxy_pool", return_value=[]), \
+             patch.object(email_change_service._proxy_cfg, "pick_proxy", return_value=""), \
              patch.object(email_change_service, "_append_log"), \
              patch.object(email_change_service.time, "sleep"):
             result, used_session = email_change_service._post_with_network_retry(
@@ -73,7 +97,7 @@ class EmailChangeTests(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertIs(used_session, second)
         self.assertEqual(post.call_count, 2)
-        new_session.assert_called_once_with(9, None, email="")
+        new_session.assert_called_once_with(9, "", email="")
 
     def test_recent_login_reuses_live_check_full_login_flow(self):
         session = MagicMock()
@@ -86,6 +110,8 @@ class EmailChangeTests(unittest.TestCase):
              patch("core.account_liveness._login_via_password_or_otp", return_value={
                  "accessToken": "fresh-token",
              }) as login, \
+             patch.object(email_change_service, "_change_proxy_pool", return_value=[]), \
+             patch.object(email_change_service._proxy_cfg, "pick_proxy", return_value=""), \
              patch.object(email_change_service, "_append_log"):
             used_session, token = email_change_service._refresh_recent_login(
                 session,
@@ -117,6 +143,8 @@ class EmailChangeTests(unittest.TestCase):
              patch("core.account_liveness._login_via_password_or_otp", return_value={
                  "accessToken": "direct-token",
              }) as login, \
+             patch.object(email_change_service, "_change_proxy_pool", return_value=[]), \
+             patch.object(email_change_service._proxy_cfg, "pick_proxy", return_value=""), \
              patch.object(email_change_service, "_append_log") as append_log:
             used_session, token = email_change_service._refresh_recent_login(
                 session,
@@ -134,7 +162,7 @@ class EmailChangeTests(unittest.TestCase):
         self.assertEqual(preflight.call_args_list[1].kwargs["fingerprint_state"], {})
         proxy_session.session.close.assert_called_once_with()
         self.assertIs(login.call_args.args[0], direct_session)
-        self.assertTrue(any("独立直连兜底" in call.args[1] for call in append_log.call_args_list))
+        self.assertTrue(any("直连兜底" in call.args[1] for call in append_log.call_args_list))
 
     def test_post_change_live_check_reuses_current_session(self):
         session = MagicMock()
@@ -232,6 +260,58 @@ class EmailChangeTests(unittest.TestCase):
                 response = client.post("/api/accounts/change-email-bulk", json={"account_ids": [account_id], "source": "imap"}, headers={"X-Auth-Code": "test-auth"})
             self.assertEqual(response.status_code, 202)
             self.assertEqual(response.get_json()["started_count"], 1)
+
+    def test_success_recycles_old_email_with_pre_change_source(self):
+        """换绑成功后按换绑前的来源把原邮箱放回邮箱池。"""
+        with tempfile.TemporaryDirectory() as td, patch.multiple(db, **self.storage(Path(td))):
+            db.import_outlook_accounts([{
+                "email": "old@example.com", "password": "pw", "client_id": "cid",
+                "refresh_token": "rt",
+            }])
+            db.claim_next_outlook()
+            account_id = db.insert_account(
+                email="old@example.com", access_token="old-token", email_source="outlook",
+            )
+            self.assertTrue(db.claim_account_email_change(account_id, "imap"))
+            session = MagicMock()
+            with patch.object(email_change_service, "acquire_email_from_source", return_value="new@example.com"), \
+                 patch.object(email_change_service, "_new_session", return_value=session), \
+                 patch.object(email_change_service, "_change_proxy_pool", return_value=[]), \
+                 patch.object(email_change_service._proxy_cfg, "pick_proxy", return_value=""), \
+                 patch.object(email_change_service._proxy_cfg, "proxy_is_cooling_down", return_value=False), \
+                 patch.object(
+                     email_change_service, "_begin_change_with_optional_reauth",
+                     return_value=(session, "token", 0.0, False),
+                 ), \
+                 patch.object(email_change_service, "wait_for_otp", return_value="123456"), \
+                 patch.object(
+                     email_change_service, "_post_with_network_retry",
+                     return_value=({"success": True}, session),
+                 ), \
+                 patch.object(
+                     email_change_service, "_check_live_in_current_session",
+                     return_value={"ok": True, "status": "live"},
+                 ), \
+                 patch.object(email_change_service, "_append_log") as append_log, \
+                 patch.object(email_change_service, "_SLOTS", MagicMock()):
+                result = email_change_service._run(account_id, "imap")
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["old_email"], "old@example.com")
+            self.assertEqual(result["old_email_source"], "outlook")
+            self.assertTrue(result["old_email_recycle"]["ok"])
+            self.assertEqual(result["old_email_recycle"]["mode"], "reset")
+
+            row = db.get_account(account_id)
+            self.assertEqual(row["email"], "new@example.com")
+            self.assertEqual(row["email_source"], "imap")
+            self.assertEqual(row["email_history"], ["old@example.com"])
+
+            old_pool_row = db.get_outlook_by_email("old@example.com")
+            self.assertEqual(old_pool_row["status"], "available")
+            self.assertIsNone(old_pool_row["used_at"])
+            self.assertIn("账号 #", old_pool_row["note"])
+            self.assertTrue(any("原邮箱已回池" in call.args[1] for call in append_log.call_args_list))
 
     def test_change_email_log_api(self):
         with tempfile.TemporaryDirectory() as td, patch.multiple(db, **self.storage(Path(td))):

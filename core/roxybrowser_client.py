@@ -12,6 +12,12 @@ from urllib.parse import unquote, urljoin, urlparse
 import requests
 
 from config import roxybrowser as _cfg
+from core.browser_client_ready import (
+    BrowserClientUnavailable,
+    classify_client_error,
+    disable_env_proxy_for_loopback,
+    unavailable_message,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -180,10 +186,16 @@ def _random_roxy_profile_name() -> str:
 
 
 class RoxyBrowserClient:
+    # 用于"客户端没启动"时的中文提示文案。
+    browser_label = "RoxyBrowser"
+    config_key = "ROXY_API_BASE"
+
     def __init__(self, api_base: str | None = None, token: str | None = None):
         self.api_base = (api_base or _cfg.ROXY_API_BASE).strip()
         self.token = (token if token is not None else _cfg.ROXY_API_TOKEN).strip()
         self.http = requests.Session()
+        # 本地接口在回环上：绕过 HTTP_PROXY/HTTPS_PROXY，否则会被系统代理拦成 502。
+        disable_env_proxy_for_loopback(self.http, self.api_base)
         if self.token:
             # 官方文档要求所有接口请求头必须加 token。这里同时兼容 token / Authorization。
             self.http.headers.update({
@@ -192,6 +204,18 @@ class RoxyBrowserClient:
                 "Content-Type": "application/json",
                 "Accept": "application/json",
             })
+
+    def unavailable_error(self, exc: BaseException | None = None) -> BrowserClientUnavailable:
+        """构造"请先启动 RoxyBrowser"的可读异常。"""
+        return BrowserClientUnavailable(
+            unavailable_message(
+                self.browser_label,
+                self.api_base,
+                exc,
+                config_key=self.config_key,
+                kind=classify_client_error(exc) if exc is not None else "down",
+            )
+        )
 
     @staticmethod
     def _is_retryable_error(exc: Exception) -> bool:
@@ -207,6 +231,18 @@ class RoxyBrowserClient:
             or "http 504" in text
             or "http 429" in text
         )
+
+    @staticmethod
+    def _token_hint(msg) -> str:
+        """Roxy 返回 token/登录类错误时补一句"去哪改 token"。"""
+        text = str(msg or "").lower()
+        markers = ("token", "unauthorized", "未登录", "登录失效", "授权", "auth", "expire")
+        if any(m in text for m in markers):
+            return (
+                "（请先启动并登录 RoxyBrowser 客户端，再到客户端「开放接口/API」页复制最新 token，"
+                "填入配置项 ROXY_API_TOKEN 后重试）"
+            )
+        return ""
 
     def request(self, method: str, path: str, *, params: dict | None = None, json_body: dict | None = None) -> dict:
         url = _join_url(self.api_base, path)
@@ -242,14 +278,23 @@ class RoxyBrowserClient:
                     success = payload.get("success")
                     if code not in (None, 0, 200, "0", "200") and ok is not True and success is not True:
                         msg = payload.get("msg") or payload.get("message") or payload.get("error") or json.dumps(payload, ensure_ascii=False)[:500]
-                        raise RuntimeError(f"Roxy API 返回失败 {method_u} {path}: {msg}")
+                        raise RuntimeError(f"Roxy API 返回失败 {method_u} {path}: {msg}{self._token_hint(msg)}")
                 if attempt > 1:
                     logger.info("[Roxy] API 重试成功：%s %s attempt=%s/%s", method_u, path, attempt, max_attempts)
                 return payload if isinstance(payload, dict) else {"data": payload}
             except Exception as exc:
                 last_exc = exc
+                kind = classify_client_error(exc)
+                if kind == "down":
+                    # 客户端没启动（端口无人监听 / 被代理拦截）：重试没有意义，
+                    # 直接给出"请先启动 RoxyBrowser"的提示，别让用户看英文堆栈。
+                    logger.warning("[Roxy] 本地接口不可用（%s）：%s", self.api_base, exc)
+                    raise self.unavailable_error(exc) from exc
                 retryable = self._is_retryable_error(exc)
                 if attempt >= max_attempts or not retryable:
+                    if kind == "timeout":
+                        # 客户端可能没启动、或启动中卡住：统一转成可读提示。
+                        raise self.unavailable_error(exc) from exc
                     raise
                 delay = base_delay * attempt
                 logger.warning(
@@ -260,9 +305,15 @@ class RoxyBrowserClient:
         raise last_exc or RuntimeError(f"Roxy API 请求失败 {method_u} {path}")
 
     def try_request(self, method: str, path: str, *, params: dict | None = None, json_body: dict | None = None) -> tuple[bool, dict | str]:
-        """宽松请求：用于探测不同 Roxy 版本接口，失败不抛出。"""
+        """宽松请求：用于探测不同 Roxy 版本接口，失败不抛出。
+
+        唯一例外是"客户端没启动"（BrowserClientUnavailable）：这不是接口风格不匹配，
+        必须上抛给调用方去提示用户启动 RoxyBrowser，否则会被降级成"探测失败"。
+        """
         try:
             return True, self.request(method, path, params=params, json_body=json_body)
+        except BrowserClientUnavailable:
+            raise
         except Exception as exc:
             return False, f"{type(exc).__name__}: {exc}"
 
@@ -470,7 +521,15 @@ class RoxyBrowserClient:
             body.get("osVersion") or "-",
             random_os_enabled,
         )
-        result = self.request(_cfg.ROXY_CREATE_METHOD, _cfg.ROXY_CREATE_PATH, json_body=body)
+        try:
+            result = self.request(_cfg.ROXY_CREATE_METHOD, _cfg.ROXY_CREATE_PATH, json_body=body)
+        except BrowserClientUnavailable:
+            raise
+        except Exception as exc:
+            raise RuntimeError(
+                f"Roxy 创建环境失败：{exc}\n"
+                f"请确认「{self.browser_label}」客户端已启动并已登录（未登录时无法创建环境）。"
+            ) from exc
         profile_id = _first(result, [
             ("id",), ("dirId",), ("dir_id",), ("profile_id",), ("profileId",), ("browser_id",),
             ("data", "id"), ("data", "dirId"), ("data", "dir_id"),
@@ -516,12 +575,20 @@ class RoxyBrowserClient:
         # 否则 extra 里残留 headless=False 会导致 WebUI 保存无头后仍弹窗口。
         params["headless"] = bool(getattr(_cfg, "ROXY_OPEN_HEADLESS", False))
         logger.info("[Roxy] open 参数：profile=%s headless=%s keep_open=%s", pid, params.get("headless"), getattr(_cfg, "ROXY_KEEP_BROWSER_OPEN", False))
-        result = self.request(
-            _cfg.ROXY_OPEN_METHOD,
-            path,
-            params=params if _cfg.ROXY_OPEN_METHOD.upper() == "GET" else None,
-            json_body=params if _cfg.ROXY_OPEN_METHOD.upper() != "GET" else None,
-        )
+        try:
+            result = self.request(
+                _cfg.ROXY_OPEN_METHOD,
+                path,
+                params=params if _cfg.ROXY_OPEN_METHOD.upper() == "GET" else None,
+                json_body=params if _cfg.ROXY_OPEN_METHOD.upper() != "GET" else None,
+            )
+        except BrowserClientUnavailable:
+            raise
+        except Exception as exc:
+            raise RuntimeError(
+                f"Roxy 环境打开失败（profile {pid}）：{exc}\n"
+                f"请确认「{self.browser_label}」客户端已启动并已登录，且该环境可以正常打开。"
+            ) from exc
         debugger_address = self._extract_debugger_address(result)
         logger.info("[Roxy] open 返回摘要: debugger=%s raw=%s", debugger_address, json.dumps(result, ensure_ascii=False)[:800])
         webdriver_url = _first(result, [

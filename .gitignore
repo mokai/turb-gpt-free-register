@@ -87,4 +87,15 @@ Thumbs.db
 webui.log
 webui.pid
 logs/
+
+# 本地工作记忆与排查记录可能包含账号、邮箱和运行环境信息
+.workbuddy/
+
+# SQLite 备份可能含有账号、令牌及邮箱池数据
+*.sqlite3.bak*
+*.db.bak*
+
+# 含真实 OTP 取码链接、邮箱或代理账号标识的本地截图
+docs/manual-otp-panel-preview.png
+docs/proxy-group-edit-aligned*.png
 run/

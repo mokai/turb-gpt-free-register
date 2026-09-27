@@ -27,7 +27,9 @@ PID_FILE="$RUN_DIR/webui.pid"
 LOG_FILE="$LOG_DIR/webui.log"
 
 HOST="${HOST:-127.0.0.1}"
-PORT="${PORT:-5000}"
+# 默认 5001：本机 macOS「隔空播放接收器」(ControlCenter/AirTunes) 监听 *:5000 的 IPv6，
+# 浏览器把 localhost 解析成 ::1 时会被它抢答 403。除非已关闭隔空播放接收器，否则勿改回 5000。
+PORT="${PORT:-5001}"
 OPEN_BROWSER="${OPEN_BROWSER:-0}"
 VERBOSE="${VERBOSE:-0}"
 AUTH_CODE="${AUTH_CODE:-}"

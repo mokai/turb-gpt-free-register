@@ -731,11 +731,20 @@ def save_account_data(
     try:
         from core.plan_check_service import enqueue_account_plan_check
 
+        # 注册页选了代理分组时，自动套餐查询沿用同一分组，保证"用什么出口注册，
+        # 就用什么出口看资格"（Plus 试用资格与出口地区相关）。
+        try:
+            from config.proxy import get_task_group_name
+
+            auto_group = str(get_task_group_name() or "").strip()
+        except Exception:
+            auto_group = ""
         queued = enqueue_account_plan_check(
             account_id=row_id,
             email=email,
             access_token=access_token,
             trigger="registration_auto",
+            proxy_groups=[auto_group] if auto_group else None,
         )
         if queued.get("accepted"):
             logger.info(f"[Plan] 注册后自动查询已入队: id={row_id}, email={email}")

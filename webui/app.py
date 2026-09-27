@@ -21,7 +21,15 @@ from urllib.parse import urlparse
 from flask import Flask, Response, jsonify, make_response, render_template, request
 import pyotp
 
-from core import codex_retry_service, db, plan_check_service, extract_link_service, codex_agent_service, live_check_service
+from core import (
+    codex_retry_service,
+    db,
+    plan_check_service,
+    extract_link_service,
+    codex_agent_service,
+    live_check_service,
+    proxy_test_service,
+)
 from webui.auth import init_auth, register_auth_routes
 from core import registration_service as svc
 from webui import config_editor
@@ -121,15 +129,27 @@ def _compact_account_for_list(row: dict) -> dict:
         if key in row:
             out[key] = row.get(key)
 
+    # 按代理分组保存的套餐查询状态（套餐列多状态展示）。
+    # 只下发最近一轮查询的分组结果：旧分组的缓存标签如果一直挂在账号上，
+    # 换了分组去查时列表看起来就像"还在用缓存"。
+    groups = db.prune_stale_plan_groups(row.get("plan_check_groups"))
+    if groups:
+        out["plan_check_groups"] = {
+            str(name): dict(record or {})
+            for name, record in groups.items()
+            if isinstance(record, dict)
+        }
+
     if row.get("plan_check_status") in ("queued", "running") or row.get("plan_check_ok") is False:
         out["plan_check_ok"] = row.get("plan_check_ok")
 
     # 下面字段仅在有值时返回，避免每行堆满 null/空字符串/内部状态。
     optional_keys = (
-        # 套餐展示补充：付费到期/折扣/失败原因。
+        # 套餐展示补充：付费到期/折扣/失败原因、当前分组活动。
         "plan_check_error", "plan_expires_at", "plan_renews_at", "renews_at",
         "billing_period", "billing_currency", "discount_amount", "discount_type",
         "discount_expires_at", "discount_promo_campaign_id",
+        "plan_activity_short", "plan_activity_title", "plus_trial_campaign_id",
         "token_expired", "token_expires_at",
         # 查活状态。
         "live_check_status", "live_check_error", "live_checked_at",
@@ -238,6 +258,7 @@ def _job_status_counts(rows: list[dict]) -> dict:
 
 
 def _read_log_tail(path, *, max_bytes: int, default_running: bool = False, running_fn=None) -> dict:
+    """读取日志文件尾部，附带任务运行状态。"""
     if not path.exists():
         return {"ok": True, "log": "", "running": bool(default_running)}
     size = path.stat().st_size
@@ -252,6 +273,64 @@ def _read_log_tail(path, *, max_bytes: int, default_running: bool = False, runni
         except Exception:
             pass
     return {"ok": True, "log": content, "running": running}
+
+
+def _plan_group_arg():
+    """解析账号列表的套餐分组筛选参数（多选，格式 ``分组|状态``）。"""
+    raw = request.args.get("plan_group") or request.args.get("plan_groups") or ""
+    items = [part.strip() for part in str(raw).replace("\n", ",").split(",") if part.strip()]
+    return items or None
+
+
+def _resolve_proxy_group_arg(data: dict) -> tuple[str, str]:
+    """解析请求里选中的单个代理分组名，返回 (分组名, 错误信息)。
+
+    分组名不存在时返回错误而不是静默回退，避免"以为走了指定分组其实没走"。
+    """
+    raw = str((data or {}).get("proxy_group") or "").strip()
+    if not raw:
+        return "", ""
+    try:
+        from config import proxy as proxy_cfg
+
+        pool = proxy_cfg.resolve_group_pool(raw)
+        if pool is None:
+            return "", f"代理分组「{raw}」不存在，请先在配置页「代理池」里添加"
+        return proxy_cfg.normalize_group_name(raw), ""
+    except Exception as exc:
+        return "", f"代理分组解析失败：{type(exc).__name__}: {exc}"
+
+
+def _resolve_proxy_groups_arg(data: dict) -> tuple[list[str], str]:
+    """解析请求里选中的多个代理分组名（查套餐多选），返回 (分组名列表, 错误信息)。"""
+    raw = (data or {}).get("proxy_groups")
+    if raw is None:
+        single, error = _resolve_proxy_group_arg(data)
+        return ([single] if single else []), error
+    if isinstance(raw, str):
+        raw = [part for part in raw.replace("\n", ",").split(",") if part.strip()]
+    if not isinstance(raw, list):
+        return [], "proxy_groups 必须是数组或逗号分隔的字符串"
+    names: list[str] = []
+    seen: set[str] = set()
+    try:
+        from config import proxy as proxy_cfg
+    except Exception as exc:
+        return [], f"代理分组解析失败：{type(exc).__name__}: {exc}"
+    for item in raw:
+        name = str(item or "").strip()
+        if not name:
+            continue
+        pool = proxy_cfg.resolve_group_pool(name)
+        if pool is None:
+            return [], f"代理分组「{name}」不存在，请先在配置页「代理池」里添加"
+        normalized = proxy_cfg.normalize_group_name(name)
+        if normalized not in seen:
+            seen.add(normalized)
+            names.append(normalized)
+    if len(names) > 8:
+        return [], "单次最多选择 8 个代理分组"
+    return names, ""
 
 def create_app(auth_code: str | None = None) -> Flask:
     app = Flask(__name__, template_folder="templates")
@@ -403,6 +482,8 @@ def create_app(auth_code: str | None = None) -> Flask:
         limit = request.args.get("limit", default=500, type=int)
         archived = str(request.args.get("archived", default="0") or "0").lower()
         plan_filter = str(request.args.get("plan", default="") or "").lower()
+        # plan_group：按「代理分组|状态」多选筛选（套餐列的多状态），如 IN|plus_trial,KN|free
+        plan_group_filter = _plan_group_arg()
         codex_filter = str(request.args.get("codex_status", default="") or "").strip().lower()
         totp_filter = str(
             request.args.get("totp_status")
@@ -421,11 +502,22 @@ def create_app(auth_code: str | None = None) -> Flask:
             page = max(1, int(page_arg or 1))
             page_size = max(1, min(500, int(page_size_arg or limit or 50)))
             offset = (page - 1) * page_size
-            result = db.list_accounts_page(limit=page_size, offset=offset, archived=archived, plan_filter=plan_filter, codex_filter=codex_filter, q=q, date_from=date_from, date_to=date_to, totp_filter=totp_filter)
+            result = db.list_accounts_page(limit=page_size, offset=offset, archived=archived, plan_filter=plan_filter, codex_filter=codex_filter, q=q, date_from=date_from, date_to=date_to, totp_filter=totp_filter, plan_group_filter=plan_group_filter)
             result["items"] = [_compact_account_for_list(r) for r in (result.get("items") or [])]
             result.update({"ok": True, "page": page, "page_size": page_size, "compact": True})
             return jsonify(result)
-        return jsonify(db.list_accounts(limit=limit, archived=archived, plan_filter=plan_filter, codex_filter=codex_filter, q=q, date_from=date_from, date_to=date_to, totp_filter=totp_filter))
+        return jsonify(db.list_accounts(limit=limit, archived=archived, plan_filter=plan_filter, codex_filter=codex_filter, q=q, date_from=date_from, date_to=date_to, totp_filter=totp_filter, plan_group_filter=plan_group_filter))
+
+    @app.get("/api/accounts/plan-group-options")
+    def api_account_plan_group_options():
+        """列出账号里出现过的「代理分组 + 套餐状态」选项，供套餐筛选多选使用。"""
+        archived = str(request.args.get("archived", default="0") or "0").lower()
+        try:
+            options = db.list_plan_group_states(archived=archived)
+        except Exception as exc:
+            logger.exception("读取套餐分组筛选项失败")
+            return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
+        return jsonify({"ok": True, "options": options})
 
     @app.get("/api/accounts/plan-check-status")
     def api_account_plan_check_status():
@@ -433,6 +525,7 @@ def create_app(auth_code: str | None = None) -> Flask:
         limit = request.args.get("limit", default=5000, type=int)
         archived = str(request.args.get("archived", default="0") or "0").lower()
         plan_filter = str(request.args.get("plan", default="") or "").lower()
+        plan_group_filter = _plan_group_arg()
         codex_filter = str(request.args.get("codex_status", default="") or "").strip().lower()
         totp_filter = str(
             request.args.get("totp_status")
@@ -449,10 +542,10 @@ def create_app(auth_code: str | None = None) -> Flask:
             page = max(1, int(page_arg or 1))
             page_size = max(1, min(500, int(page_size_arg or limit or 50)))
             offset = (page - 1) * page_size
-            snapshot = db.list_account_plan_check_statuses(limit=page_size, offset=offset, archived=archived, plan_filter=plan_filter, codex_filter=codex_filter, q=q, date_from=date_from, date_to=date_to, totp_filter=totp_filter)
+            snapshot = db.list_account_plan_check_statuses(limit=page_size, offset=offset, archived=archived, plan_filter=plan_filter, codex_filter=codex_filter, q=q, date_from=date_from, date_to=date_to, totp_filter=totp_filter, plan_group_filter=plan_group_filter)
             snapshot.update({"page": page, "page_size": page_size})
         else:
-            snapshot = db.list_account_plan_check_statuses(limit=max(1, min(5000, limit)), archived=archived, plan_filter=plan_filter, codex_filter=codex_filter, q=q, date_from=date_from, date_to=date_to, totp_filter=totp_filter)
+            snapshot = db.list_account_plan_check_statuses(limit=max(1, min(5000, limit)), archived=archived, plan_filter=plan_filter, codex_filter=codex_filter, q=q, date_from=date_from, date_to=date_to, totp_filter=totp_filter, plan_group_filter=plan_group_filter)
         snapshot["queue"] = plan_check_service.queue_settings()
         return jsonify(snapshot)
 
@@ -632,25 +725,28 @@ def create_app(auth_code: str | None = None) -> Flask:
 
     @app.post("/api/accounts/<int:acc_id>/change-email")
     def api_account_change_email(acc_id: int):
-        """给单个账号排队换绑邮箱。Body {source}."""
+        """给单个账号排队换绑邮箱。Body {source, proxy_group?}."""
         data = request.get_json(silent=True) or {}
         source = str(data.get("source") or "").strip().lower()
         allowed = {"outlook", "generic_api", "imap", "cloudflare_domain", "cloudflare", "gptmail", "mailnest", "cloudmail", "remail"}
         if source not in allowed:
             return jsonify({"ok": False, "error": "请选择有效的邮箱来源"}), 400
+        proxy_group, group_error = _resolve_proxy_group_arg(data)
+        if group_error:
+            return jsonify({"ok": False, "error": group_error}), 400
         acc = db.get_account(acc_id)
         if not acc:
             return jsonify({"ok": False, "error": "账号不存在"}), 404
         if not str(acc.get("access_token") or "").strip():
             return jsonify({"ok": False, "error": "账号缺少 access_token，请先查活刷新 AT"}), 400
         from core import email_change_service
-        result = email_change_service.enqueue(acc_id, source, trigger="manual")
+        result = email_change_service.enqueue(acc_id, source, trigger="manual", proxy_group=proxy_group)
         public = {k: v for k, v in result.items() if k != "future"}
         return jsonify({"ok": bool(result.get("accepted")), **public}), (202 if result.get("accepted") else 409)
 
     @app.post("/api/accounts/change-email-bulk")
     def api_accounts_change_email_bulk():
-        """批量换绑邮箱。Body {account_ids:[...], source}."""
+        """批量换绑邮箱。Body {account_ids:[...], source, proxy_group?}."""
         data = request.get_json(silent=True) or {}
         ids = data.get("account_ids") or data.get("ids") or []
         source = str(data.get("source") or "").strip().lower()
@@ -661,6 +757,9 @@ def create_app(auth_code: str | None = None) -> Flask:
             return jsonify({"ok": False, "error": "account_ids 必须是非空数组"}), 400
         if len(ids) > 500:
             return jsonify({"ok": False, "error": "单次最多提交 500 个账号"}), 400
+        proxy_group, group_error = _resolve_proxy_group_arg(data)
+        if group_error:
+            return jsonify({"ok": False, "error": group_error}), 400
         from core import email_change_service
         started, skipped = [], []
         seen_ids: set[int] = set()
@@ -680,7 +779,9 @@ def create_app(auth_code: str | None = None) -> Flask:
             if not str(acc.get("access_token") or "").strip():
                 skipped.append({"id": acc_id, "email": acc.get("email"), "reason": "缺少 access_token"})
                 continue
-            result = email_change_service.enqueue(acc_id, source, trigger="manual_bulk")
+            result = email_change_service.enqueue(
+                acc_id, source, trigger="manual_bulk", proxy_group=proxy_group
+            )
             if result.get("accepted"):
                 started.append({"id": acc_id, "email": acc.get("email"), "status": "queued"})
             else:
@@ -689,13 +790,20 @@ def create_app(auth_code: str | None = None) -> Flask:
 
     @app.post("/api/accounts/totp-setup-bulk")
     def api_accounts_totp_setup_bulk():
-        """批量把账号 2FA/TOTP 设置任务加入后台队列。Body {account_ids:[...]}。"""
+        """批量把账号 2FA/TOTP 设置任务加入后台队列。
+
+        Body {account_ids:[...], proxy_group?}：proxy_group 为代理分组名，
+        选中后本次 2FA 设置只从该分组里选出口。
+        """
         data = request.get_json(silent=True) or {}
         ids = data.get("account_ids") or data.get("ids") or []
         if not isinstance(ids, list) or not ids:
             return jsonify({"ok": False, "error": "account_ids 必须是非空数组"}), 400
         if len(ids) > 500:
             return jsonify({"ok": False, "error": "单次最多提交 500 个账号"}), 400
+        proxy_group, group_error = _resolve_proxy_group_arg(data)
+        if group_error:
+            return jsonify({"ok": False, "error": group_error}), 400
 
         account_ids = []
         skipped = []
@@ -747,7 +855,9 @@ def create_app(auth_code: str | None = None) -> Flask:
                     email=email,
                     access_token=str(acc.get("access_token") or "").strip(),
                     trigger="manual_bulk",
-                    proxy=str(acc.get("proxy_used") or "") or None,
+                    # 选了代理分组时以分组为准（priority 高于账号历史出口与全局配置）。
+                    proxy=(None if proxy_group else (str(acc.get("proxy_used") or "") or None)),
+                    proxy_group=proxy_group,
                 )
             except Exception as exc:
                 failed.append({
@@ -820,13 +930,20 @@ def create_app(auth_code: str | None = None) -> Flask:
 
     @app.post("/api/accounts/check-live-bulk")
     def api_accounts_check_live_bulk():
-        """批量查活：加入后台队列；协议 BrowserSession 指纹环境重新登录并刷新最新 AT。"""
+        """批量查活：加入后台队列；协议 BrowserSession 指纹环境重新登录并刷新最新 AT。
+
+        Body {account_ids, workers?, proxy_group?}：proxy_group 为配置页代理分组的名字，
+        选中后本次查活只从该分组里选出口（优先级高于全局网络配置）。
+        """
         data = request.get_json(silent=True) or {}
         ids = data.get("account_ids") or data.get("ids") or []
         if not isinstance(ids, list) or not ids:
             return jsonify({"ok": False, "error": "account_ids 必须是非空数组"}), 400
         if len(ids) > 500:
             return jsonify({"ok": False, "error": "单次最多查活 500 个账号"}), 400
+        proxy_group, group_error = _resolve_proxy_group_arg(data)
+        if group_error:
+            return jsonify({"ok": False, "error": group_error}), 400
 
         account_ids: list[int] = []
         skipped: list[dict] = []
@@ -868,6 +985,7 @@ def create_app(auth_code: str | None = None) -> Flask:
                 # PLAN_CHECK_PROXY_MODE / PLAN_CHECK_PROXY / PROXY_POOL。
                 # 不复用账号注册时的 proxy_used，避免旧注册出口被 CF 403 后一直失败。
                 proxy=None,
+                proxy_group=proxy_group,
             )
             if queued.get("accepted"):
                 started.append({"id": acc_id, "email": email, "status": "queued"})
@@ -892,7 +1010,11 @@ def create_app(auth_code: str | None = None) -> Flask:
 
     @app.post("/api/accounts/check-plan")
     def api_account_check_plan():
-        """把单账号套餐查询加入后台队列。Body {account_id|email, proxy?, timezone_offset_min?}"""
+        """把单账号套餐查询加入后台队列。
+
+        Body {account_id|email, proxy?, proxy_group?|proxy_groups?, timezone_offset_min?}
+        proxy_group / proxy_groups 为代理分组名，选中后本次查询只从这些分组里选出口。
+        """
         data = request.get_json(silent=True) or {}
         acc_id = data.get("account_id") or data.get("id")
         email = (data.get("email") or "").strip()
@@ -909,6 +1031,9 @@ def create_app(auth_code: str | None = None) -> Flask:
         token = (acc.get("access_token") or "").strip()
         if not token:
             return jsonify({"ok": False, "error": "该账号没有 access_token"}), 400
+        groups, group_error = _resolve_proxy_groups_arg(data)
+        if group_error:
+            return jsonify({"ok": False, "error": group_error}), 400
         account_id = int(acc.get("id"))
         queued = plan_check_service.enqueue_account_plan_check(
             account_id=account_id,
@@ -917,6 +1042,7 @@ def create_app(auth_code: str | None = None) -> Flask:
             trigger="manual",
             proxy=data.get("proxy") if "proxy" in data else None,
             timezone_offset_min=str(data.get("timezone_offset_min") or "-"),
+            proxy_groups=groups,
         )
         if queued.get("busy"):
             return jsonify({"ok": False, **queued}), 409
@@ -926,7 +1052,12 @@ def create_app(auth_code: str | None = None) -> Flask:
 
     @app.post("/api/accounts/check-plan-bulk")
     def api_accounts_check_plan_bulk():
-        """批量把套餐查询加入统一后台队列。Body {account_ids:[...], proxy?, timezone_offset_min?}"""
+        """批量把套餐查询加入统一后台队列。
+
+        Body {account_ids:[...], proxy?, proxy_groups?:[分组名,...], timezone_offset_min?}
+        proxy_groups 支持多选：每个账号会对每个选中的分组各查一次，分开记录状态
+        （不同地区出口看到的 Plus 试用资格可能不同）。
+        """
         data = request.get_json(silent=True) or {}
         ids = data.get("account_ids") or data.get("ids") or []
         if not isinstance(ids, list) or not ids:
@@ -936,6 +1067,9 @@ def create_app(auth_code: str | None = None) -> Flask:
         # 与单账号查询保持一致：未传时使用独立网络策略。
         proxy = data.get("proxy") if "proxy" in data else None
         timezone_offset_min = str(data.get("timezone_offset_min") or "-")
+        groups, group_error = _resolve_proxy_groups_arg(data)
+        if group_error:
+            return jsonify({"ok": False, "error": group_error}), 400
 
         items = []
         skipped = []
@@ -969,6 +1103,7 @@ def create_app(auth_code: str | None = None) -> Flask:
                 trigger="manual_bulk",
                 proxy=proxy,
                 timezone_offset_min=timezone_offset_min,
+                proxy_groups=groups,
             )
             item = {"id": acc.get("id"), "email": acc.get("email"), **queued}
             if queued.get("accepted"):
@@ -2456,6 +2591,17 @@ def create_app(auth_code: str | None = None) -> Flask:
         data = _read_log_tail(p, max_bytes=80_000, running_fn=lambda: live_check_service.is_checking(email))
         return jsonify(data)
 
+    @app.get("/api/accounts/plan-check-log")
+    def api_account_plan_check_log():
+        """读取某邮箱最近一次查套餐日志。?email=xxx"""
+        from core import plan_check_service
+        email = (request.args.get("email") or "").strip()
+        if not email:
+            return jsonify({"ok": False, "error": "email 为空"}), 400
+        p = plan_check_service.log_path(email)
+        data = _read_log_tail(p, max_bytes=80_000, running_fn=lambda: plan_check_service.is_checking(email))
+        return jsonify(data)
+
     @app.get("/api/accounts/totp-setup-log")
     def api_account_totp_setup_log():
         """读取某邮箱最近一次 2FA 设置日志。?email=xxx"""
@@ -2487,6 +2633,68 @@ def create_app(auth_code: str | None = None) -> Flask:
         data["email"] = acc.get("email")
         data["running"] = bool(data.get("running") or str(acc.get("email_change_status") or "") in {"queued", "running"})
         return jsonify(data)
+
+    # ----------------------------------------------------------
+    # 手动输入验证码（通用兜底：注册 / 查活 / 换绑等自动取码失败时）
+    # ----------------------------------------------------------
+    @app.get("/api/manual-otp/pending")
+    def api_manual_otp_pending():
+        """轮询当前等待人工输入的验证码请求；前端据此弹框并做浏览器提醒。"""
+        from core import manual_otp
+        return jsonify({"ok": True, "items": manual_otp.list_pending()})
+
+    @app.post("/api/manual-otp/cancel")
+    def api_manual_otp_cancel():
+        """取消手动输入：等待侧会立即失败，避免空等超时。"""
+        from core import manual_otp
+        data = request.get_json(silent=True) or {}
+        email = str(data.get("email") or "").strip()
+        reason = str(data.get("reason") or "").strip() or "用户取消手动输入"
+        request_id = str(data.get("request_id") or "").strip() or None
+        if not email:
+            return jsonify({"ok": False, "error": "email 为空"}), 400
+        try:
+            return jsonify(manual_otp.cancel_manual_otp(email, reason=reason, request_id=request_id))
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+
+    # ----------------------------------------------------------
+    # 人工处理（Cloudflare 风控页等：必须在浏览器窗口里手动操作，脚本代不了）
+    # ----------------------------------------------------------
+    @app.get("/api/manual-intervention/pending")
+    def api_manual_intervention_pending():
+        """轮询当前等待人工处理的请求；前端据此弹框提醒并展示定时复检进度。"""
+        from core import manual_intervention
+        return jsonify({"ok": True, "items": manual_intervention.list_pending()})
+
+    @app.post("/api/manual-intervention/ack")
+    def api_manual_intervention_ack():
+        """用户点「我已处理完成」：立即触发一次页面复检，不再等下一个轮询周期。"""
+        from core import manual_intervention
+        data = request.get_json(silent=True) or {}
+        request_id = str(data.get("request_id") or "").strip()
+        if not request_id:
+            return jsonify({"ok": False, "error": "request_id 为空"}), 400
+        try:
+            item = manual_intervention.ack_user_done(request_id)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True, "item": item})
+
+    @app.post("/api/manual-intervention/cancel")
+    def api_manual_intervention_cancel():
+        """用户放弃手动处理：等待侧立即失败，对应任务记为失败。"""
+        from core import manual_intervention
+        data = request.get_json(silent=True) or {}
+        request_id = str(data.get("request_id") or "").strip()
+        reason = str(data.get("reason") or "").strip() or "用户在 WebUI 取消人工处理"
+        if not request_id:
+            return jsonify({"ok": False, "error": "request_id 为空"}), 400
+        try:
+            item = manual_intervention.cancel_request(request_id, reason=reason)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True, "item": item})
 
     # ----------------------------------------------------------
     # 注册任务
@@ -2522,7 +2730,11 @@ def create_app(auth_code: str | None = None) -> Flask:
 
     @app.post("/api/jobs")
     def api_jobs_create():
-        """启动批量注册：body {count, workers}。"""
+        """启动批量注册：body {count, workers, proxy_group?}。
+
+        proxy_group 为注册页选中的代理分组名（优先级高于全局代理池配置）；
+        不传或传空表示走全局配置里的默认分组。
+        """
         data = request.get_json(silent=True) or {}
         try:
             count = int(data.get("count", 1))
@@ -2536,6 +2748,29 @@ def create_app(auth_code: str | None = None) -> Flask:
             workers = max(1, min(16, int(data.get("workers", 3))))
         except (TypeError, ValueError):
             return jsonify({"ok": False, "error": "workers 非法"}), 400
+
+        proxy_group, group_error = _resolve_proxy_group_arg(data)
+        if group_error:
+            return jsonify({"ok": False, "error": group_error}), 400
+        if proxy_group:
+            try:
+                from config import proxy as _proxy_cfg
+
+                if not _proxy_cfg.proxy_group_pool(proxy_group):
+                    return jsonify({
+                        "ok": False,
+                        "error": f"代理分组「{proxy_group}」里还没有代理，请先在配置页添加",
+                    }), 400
+            except Exception:
+                pass
+
+        # 提交前确认「本地指纹浏览器客户端」已启动（REGISTRATION_DRIVER=bit/roxy 时）。
+        # 客户端没启动的话整批任务必然秒失败，这里直接拦下来给可操作提示。
+        from core.browser_client_ready import check_registration_driver
+
+        browser_client_error = check_registration_driver()
+        if browser_client_error:
+            return jsonify({"ok": False, "error": browser_client_error}), 400
 
         # 提交前先确认池里有足够可用邮箱，给前端一个温和提示（不阻断）
         from config import email as _email_cfg
@@ -2553,13 +2788,14 @@ def create_app(auth_code: str | None = None) -> Flask:
                     "ok": False,
                     "error": "手动模式建议每次只跑 1 个任务（同一 REGISTER_EMAIL）。请把数量设为 1。",
                 }), 400
-            jobs = svc.submit_registration(count=count, workers=workers)
+            jobs = svc.submit_registration(count=count, workers=workers, proxy_group=proxy_group)
             return jsonify({
                 "ok": True,
                 "submitted": len(jobs),
                 "jobs": jobs,
                 "warning": f"手动 OTP 模式：将使用 {reg_email}；验证码请在任务页提交",
                 "workers": workers,
+                "proxy_group": proxy_group or None,
             })
         sources = parse_email_sources(_email_cfg.EMAIL_SOURCE)
         if "gptmail" in sources:
@@ -2679,31 +2915,36 @@ def create_app(auth_code: str | None = None) -> Flask:
             warning = ""
             if pool.get("available", 0) < count:
                 warning = f"可用邮箱仅 {pool.get('available', 0)} 个，少于任务数 {count}，不足的会失败"
-        jobs = svc.submit_registration(count=count, workers=workers)
-        return jsonify({"ok": True, "submitted": len(jobs), "jobs": jobs, "warning": warning, "workers": workers})
+        jobs = svc.submit_registration(count=count, workers=workers, proxy_group=proxy_group)
+        return jsonify({
+            "ok": True, "submitted": len(jobs), "jobs": jobs, "warning": warning,
+            "workers": workers, "proxy_group": proxy_group or None,
+        })
 
     @app.get("/api/manual-otp/waiting")
     def api_manual_otp_waiting():
-        """列出当前正在等待手动验证码的邮箱。"""
-        from core.manual_otp import list_waiting
-        return jsonify({"ok": True, "waiting": list_waiting()})
+        """列出当前正在等待手动验证码的邮箱（含用途/取码地址/剩余秒数）。"""
+        from core.manual_otp import list_pending
+        return jsonify({"ok": True, "waiting": list_pending()})
 
     @app.post("/api/manual-otp")
     def api_manual_otp_submit():
-        """提交手动邮箱验证码。Body: {email, code} 或 {job_id, code}。"""
-        from core.manual_otp import submit_manual_otp
+        """提交手动邮箱验证码。Body: {email, code} 或 {job_id, code}；可选 request_id。"""
+        from core import manual_otp
         data = request.get_json(silent=True) or {}
-        code = (data.get("code") or data.get("otp") or "").strip()
-        email = (data.get("email") or "").strip()
+        code = str(data.get("code") or data.get("otp") or "").strip()
+        email = str(data.get("email") or "").strip()
         job_id = data.get("job_id")
+        request_id = str(data.get("request_id") or "").strip() or None
         if not email and job_id is not None:
             job = db.get_job(int(job_id))
             email = (job or {}).get("email") or ""
         if not email:
             return jsonify({"ok": False, "error": "email/job_id 缺失"}), 400
         try:
-            result = submit_manual_otp(email, code)
-            return jsonify(result)
+            return jsonify(manual_otp.submit_manual_otp(email, code, request_id=request_id))
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
         except Exception as exc:
             return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 400
 
@@ -2834,23 +3075,100 @@ def create_app(auth_code: str | None = None) -> Flask:
         job = db.get_job(job_id)
         if not job:
             return jsonify({"ok": False, "error": "任务不存在"}), 404
+        # 注册在「资料页提交 → OAuth 跳转」之后失败的任务，允许用户手动查活找回账号。
+        from core import job_manual_check
+
+        email = str(job.get("email") or "").strip()
         return jsonify({
             "ok": True,
             "job": job,
             "log": svc.read_job_log(job_id),
+            "manual_live_check": {
+                "eligible": job_manual_check.eligible_for_manual_live_check(job),
+                "running": job_manual_check.is_running(email) if email else False,
+            },
         })
+
+    @app.post("/api/jobs/<int:job_id>/manual-live-check")
+    def api_job_manual_live_check(job_id: int):
+        """对失败任务发起手动查活：重新登录验证，成功后账号写入账号列表。"""
+        from core import job_manual_check
+
+        result = job_manual_check.start_job_live_check(job_id)
+        if not result.get("accepted"):
+            status = 409 if result.get("busy") or "不满足" in str(result.get("error") or "") else 400
+            return jsonify({"ok": False, **result}), status
+        return jsonify({"ok": True, **result}), 202
+
+    # ----------------------------------------------------------
+    # 本地指纹浏览器客户端（比特 / Roxy）可用性
+    # ----------------------------------------------------------
+    @app.get("/api/browser-client/check")
+    def api_browser_client_check():
+        """探测注册驱动对应的本地浏览器客户端是否已启动。
+
+        永远返回 200，用 ok 字段表示结果：前端据此在配置页显示"请先启动 XXX 浏览器"。
+        """
+        from core.browser_client_ready import (
+            BrowserClientUnavailable,
+            ensure_client_ready,
+            registration_driver_client,
+        )
+
+        target = registration_driver_client()
+        if not target:
+            return jsonify({
+                "ok": True,
+                "applicable": False,
+                "message": "当前注册方式（protocol / cloak / browser_use / skyvern）不需要本地浏览器客户端",
+            })
+        label, api_base, config_key = target
+        payload = {"applicable": True, "label": label, "api_base": api_base}
+        try:
+            ensure_client_ready(label, api_base, config_key=config_key)
+        except BrowserClientUnavailable as exc:
+            return jsonify({"ok": False, "error": str(exc), **payload})
+        except Exception as exc:
+            logger.exception("探测本地浏览器客户端失败")
+            return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}", **payload})
+        return jsonify({"ok": True, "message": f"{label} 本地接口可访问：{api_base}", **payload})
 
     # ----------------------------------------------------------
     # RoxyBrowser 辅助接口
     # ----------------------------------------------------------
     @app.get("/api/roxy/workspaces")
     def api_roxy_workspaces():
+        from core.browser_client_ready import BrowserClientUnavailable
+
         try:
             from core.roxybrowser_client import RoxyBrowserClient
             result = RoxyBrowserClient().list_workspaces()
             return jsonify(result)
+        except BrowserClientUnavailable as exc:
+            # 客户端没启动：给"请先启动 RoxyBrowser"的可读提示，而不是英文堆栈。
+            logger.warning("获取 Roxy 团队/工作区失败：%s", str(exc).splitlines()[0])
+            return jsonify({"ok": False, "error": str(exc), "client_unavailable": True}), 503
         except Exception as exc:
             logger.exception("获取 Roxy 团队/工作区失败")
+            return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
+
+    # ----------------------------------------------------------
+    # 比特浏览器辅助接口
+    # ----------------------------------------------------------
+    @app.get("/api/bit/groups")
+    def api_bit_groups():
+        from core.browser_client_ready import BrowserClientUnavailable
+
+        try:
+            from core.bitbrowser_client import BitBrowserClient
+            result = BitBrowserClient().list_groups()
+            return jsonify(result)
+        except BrowserClientUnavailable as exc:
+            # 客户端没启动：给"请先启动比特浏览器"的可读提示，而不是英文堆栈。
+            logger.warning("获取比特浏览器分组失败：%s", str(exc).splitlines()[0])
+            return jsonify({"ok": False, "error": str(exc), "client_unavailable": True}), 503
+        except Exception as exc:
+            logger.exception("获取比特浏览器分组失败")
             return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
 
     # ----------------------------------------------------------
@@ -2859,6 +3177,207 @@ def create_app(auth_code: str | None = None) -> Flask:
     @app.get("/api/config")
     def api_config_get():
         return jsonify(config_editor.get_config())
+
+    # ----------------------------------------------------------
+    # 代理分组：多分组代理池的读写、解析与出口测试
+    # ----------------------------------------------------------
+    def _proxy_groups_payload() -> dict:
+        from config import proxy as proxy_cfg
+
+        groups = []
+        for name, pool in proxy_cfg.proxy_groups().items():
+            groups.append({
+                "name": name,
+                "is_default": name == proxy_cfg.DEFAULT_PROXY_GROUP,
+                "proxies": list(pool or []),
+            })
+        return {
+            "ok": True,
+            "default_group": proxy_cfg.DEFAULT_PROXY_GROUP,
+            "groups": groups,
+            "test_urls": list(getattr(proxy_cfg, "PROXY_TEST_GEO_URLS", []) or []),
+            "test_timeout": float(getattr(proxy_cfg, "PROXY_TEST_TIMEOUT", 12.0) or 12.0),
+        }
+
+    @app.get("/api/proxy/groups")
+    def api_proxy_groups_get():
+        """读取全部代理分组（默认分组 + 命名分组）。"""
+        try:
+            return jsonify(_proxy_groups_payload())
+        except Exception as exc:
+            logger.exception("读取代理分组失败")
+            return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
+
+    @app.post("/api/proxy/groups")
+    def api_proxy_groups_set():
+        """保存代理分组。
+
+        Body:
+            {groups: {分组名: [代理, ...]}, default_group?: "分组名"}
+                完整覆盖式保存；default_group 指定哪个分组是默认分组
+                （写入 .env 的 DEFAULT_PROXY_GROUP；旧默认分组会保留为命名分组）
+            或 {text: "KN:\\n代理1\\n..."}     多分组文本，按 config.proxy 的解析规则展开
+        """
+        from config import proxy as proxy_cfg
+
+        data = request.get_json(silent=True) or {}
+        raw = data.get("groups")
+        if raw is None and data.get("text") is not None:
+            raw = proxy_cfg.parse_proxy_groups_text(data.get("text"))
+        if not isinstance(raw, dict):
+            return jsonify({"ok": False, "error": "groups 必须是 {分组名: [代理]} 结构"}), 400
+
+        normalized: dict[str, list[str]] = {}
+        total = 0
+        for name, value in raw.items():
+            key = proxy_cfg.normalize_group_name(name)
+            if isinstance(value, str):
+                value = value.splitlines()
+            pool = proxy_cfg.normalize_proxy_list(value)
+            total += len(pool)
+            normalized[key] = pool
+        if total > 2000:
+            return jsonify({"ok": False, "error": "代理总数过多（上限 2000）"}), 400
+
+        # 默认分组：请求里指定了就必须存在（不静默回退，避免"以为换了默认其实没换"）。
+        requested = str(data.get("default_group") or "").strip()
+        if requested:
+            default_name = proxy_cfg.normalize_group_name(requested)
+            if default_name not in normalized:
+                return jsonify({
+                    "ok": False,
+                    "error": f"默认分组「{requested}」不在提交的分组里",
+                }), 400
+        else:
+            default_name = proxy_cfg.DEFAULT_PROXY_GROUP
+            if default_name not in normalized and normalized:
+                default_name = next(iter(normalized))
+
+        default_pool = normalized.pop(default_name, [])
+        named = normalized
+
+        try:
+            result = config_editor.update_config({
+                "PROXY_POOL": default_pool,
+                "PROXY_GROUPS": named,
+                "DEFAULT_PROXY_GROUP": default_name,
+            })
+        except Exception as exc:
+            logger.exception("代理分组写入失败")
+            return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
+
+        reload_ok = True
+        reload_err = ""
+        try:
+            import config as _config_pkg
+            _config_pkg.reload_all()
+        except Exception as exc:  # pragma: no cover - 配置回读失败时仍返回已写入结果
+            reload_ok = False
+            reload_err = f"{type(exc).__name__}: {exc}"
+            logger.exception("代理分组热加载失败")
+
+        payload = _proxy_groups_payload()
+        payload.update({
+            "updated": result.get("updated") or [],
+            "reloaded": reload_ok,
+            "note": "✅ 代理分组已保存并生效" if reload_ok else f"⚠️ 已写入但热加载失败（{reload_err}）",
+        })
+        return jsonify(payload)
+
+    @app.post("/api/proxy/parse")
+    def api_proxy_parse():
+        """智能识别代理文本。
+
+        Body: {raw: "多行文本", scheme?: "socks5"|"http"}
+        支持 `host:port:用户名:密码`、`用户名:密码@host:port`、`host:port`、
+        以及带协议头的完整 URL；每行一个。
+        """
+        from config import proxy as proxy_cfg
+
+        data = request.get_json(silent=True) or {}
+        text = str(data.get("raw") or data.get("text") or "")
+        scheme = str(data.get("scheme") or "").strip().lower()
+        if scheme not in ("socks5", "socks5h", "http", "https"):
+            scheme = "http"
+        default_scheme = "socks5" if scheme in ("socks5", "socks5h") else "http"
+
+        items: list[dict] = []
+        invalid: list[str] = []
+        for line in text.splitlines():
+            raw_line = line.strip()
+            if not raw_line:
+                continue
+            normalized = proxy_cfg.normalize_proxy_url(raw_line, default_scheme=default_scheme)
+            # 归一化失败的判定：结果里没有 host:port 形态
+            ok = bool(normalized) and ("://" in normalized) and not normalized.endswith("://")
+            items.append({
+                "raw": raw_line,
+                "normalized": normalized,
+                "ok": ok,
+                "scheme": scheme,
+            })
+            if not ok:
+                invalid.append(raw_line)
+        return jsonify({
+            "ok": True,
+            "count": len(items),
+            "items": items,
+            "proxies": [item["normalized"] for item in items if item["ok"]],
+            "invalid": invalid,
+            "scheme": scheme,
+        })
+
+    @app.post("/api/proxy/test-one")
+    def api_proxy_test_one():
+        """测试单个代理出口（IP2Location 出口信息接口），同步返回结果。"""
+        data = request.get_json(silent=True) or {}
+        proxy = str(data.get("proxy") or "").strip()
+        if not proxy:
+            return jsonify({"ok": False, "error": "proxy 不能为空"}), 400
+        try:
+            timeout = float(data.get("timeout")) if data.get("timeout") is not None else None
+        except (TypeError, ValueError):
+            timeout = None
+        try:
+            result = proxy_test_service.test_proxy_geo(proxy, timeout=timeout)
+        except Exception as exc:
+            logger.exception("代理出口测试失败")
+            return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
+        return jsonify({"ok": bool(result.get("ok")), "result": result})
+
+    @app.post("/api/proxy/batch-test")
+    def api_proxy_batch_test():
+        """一键测试一组代理（后台执行，前端轮询 /api/proxy/batch-test-status）。"""
+        data = request.get_json(silent=True) or {}
+        proxies = data.get("proxies") or data.get("pool") or []
+        if isinstance(proxies, str):
+            proxies = proxies.splitlines()
+        if not isinstance(proxies, list) or not proxies:
+            return jsonify({"ok": False, "error": "proxies 必须是非空数组"}), 400
+        if len(proxies) > 300:
+            return jsonify({"ok": False, "error": "单次最多测试 300 个代理"}), 400
+        from config import proxy as proxy_cfg
+
+        cleaned = [
+            str(x.get("proxy") if isinstance(x, dict) else x or "").strip()
+            for x in proxies
+        ]
+        proxies = proxy_cfg.normalize_proxy_list([p for p in cleaned if p])
+        started = proxy_test_service.start_batch_test(proxies, label=str(data.get("label") or ""))
+        if not started.get("accepted"):
+            return jsonify({"ok": False, **started}), 409
+        return jsonify({"ok": True, **started}), 202
+
+    @app.get("/api/proxy/batch-test-status")
+    def api_proxy_batch_test_status():
+        """批量测试进度：{running, total, done, results[]}。"""
+        state = proxy_test_service.batch_state()
+        log = _read_log_tail(
+            proxy_test_service.batch_log_path(),
+            max_bytes=200_000,
+            default_running=bool(state.get("running")),
+        )
+        return jsonify({"ok": True, **state, "log": log.get("log")})
 
     @app.post("/api/cloudmail/gen-token")
     def api_cloudmail_gen_token():

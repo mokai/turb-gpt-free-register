@@ -181,6 +181,7 @@ def run_registration(
     # 可选注册驱动：
     #   protocol     = 原有纯协议（curl_cffi）
     #   roxy         = RoxyBrowser 指纹浏览器 + Selenium
+    #   bit          = 比特浏览器 BitBrowser + Selenium
     #   cloak        = CloakBrowser + Playwright/Selenium 适配层
     #   browser_use  = Browser Use Cloud stealth Chromium + Playwright
     #   skyvern      = Skyvern Browser Sessions + Playwright
@@ -188,6 +189,17 @@ def run_registration(
     if driver_mode in ("roxy", "roxybrowser", "fingerprint", "browser"):
         from core.roxy_registration import run_roxy_registration
         return run_roxy_registration(
+            email=email,
+            name=name,
+            birthday=birthday or generate_random_birthday(),
+            proxy=proxy,
+            otp_code=otp_code,
+            batch_dir=batch_dir,
+            on_email_acquired=on_email_acquired,
+        )
+    if driver_mode in ("bit", "bitbrowser"):
+        from core.bitbrowser_registration import run_bit_registration
+        return run_bit_registration(
             email=email,
             name=name,
             birthday=birthday or generate_random_birthday(),
@@ -231,7 +243,7 @@ def run_registration(
         )
     if driver_mode not in ("protocol", "api", "http"):
         raise RuntimeError(
-            f"不支持的 REGISTRATION_DRIVER={driver_mode!r}，可选 protocol / roxy / cloak / browser_use / skyvern"
+            f"不支持的 REGISTRATION_DRIVER={driver_mode!r}，可选 protocol / roxy / bit / cloak / browser_use / skyvern"
         )
 
     # 纯协议驱动没有“邮箱输入框”可等待，因此在创建 BrowserSession 前领取。

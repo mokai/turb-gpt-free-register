@@ -49,11 +49,17 @@ EDITABLE_FIELDS = [
     },
     {
         "key": "REGISTRATION_DRIVER", "file": "roxybrowser.py", "type": "str", "group": "注册方式",
-        "label": "注册驱动", "help": "默认推荐 roxy；protocol=纯协议，容易封号不建议；roxy=RoxyBrowser；cloak=CloakBrowser；browser_use=Browser Use Cloud+Playwright；skyvern=Skyvern Browser Sessions+Playwright",
+        "label": "注册驱动", "help": "默认推荐 roxy；protocol=纯协议，容易封号不建议；roxy=RoxyBrowser；bit=比特浏览器BitBrowser；cloak=CloakBrowser；browser_use=Browser Use Cloud+Playwright；skyvern=Skyvern Browser Sessions+Playwright",
     },
     {
         "key": "AUTO_PLAN_CHECK_AFTER_REGISTER", "file": "register.py", "type": "bool", "group": "注册方式",
         "label": "注册后自动查套餐", "help": "注册成功后自动入队查询套餐/Plus 资格；关闭后仅保存账号，不自动查套餐",
+    },
+    # 人工介入统一超时：既用于"自动取码失败转手动输入验证码"，也用于"页面被 Cloudflare
+    # 风控接管时的人工处理"。超时后对应任务自动结束（失败），不再空等。
+    {
+        "key": "MANUAL_OTP_TIMEOUT", "file": "email.py", "type": "int", "group": "注册方式",
+        "label": "人工介入超时时间", "help": "需要人工介入时（自动取码失败转手动输入验证码、页面被 Cloudflare 风控接管需要手动验证）等待用户处理的最长秒数；超时后自动结束该任务。默认 600",
     },
 
     # ---- CloakBrowser ----
@@ -268,6 +274,60 @@ EDITABLE_FIELDS = [
         "key": "ROXY_DELETE_PATH", "file": "roxybrowser.py", "type": "str", "group": "RoxyBrowser",
         "label": "删除接口路径", "help": "默认 /browser/delete；如 Roxy 版本不同可调整",
     },
+
+    # ---- 比特浏览器 BitBrowser ----
+    {
+        "key": "BIT_API_BASE", "file": "bitbrowser.py", "type": "str", "group": "比特浏览器",
+        "label": "Bit API 地址", "help": "默认 http://127.0.0.1:54345；在比特浏览器系统设置中可查看本地接口地址，本地接口默认无需 token",
+    },
+    {
+        "key": "BIT_PROFILE_ID", "file": "bitbrowser.py", "type": "str", "group": "比特浏览器",
+        "label": "Bit 窗口ID", "help": "指定要打开的比特浏览器窗口 ID；留空则每次创建新窗口（推荐，配合一号一窗口）",
+    },
+    {
+        "key": "BIT_GROUP_ID", "file": "bitbrowser.py", "type": "str", "group": "比特浏览器",
+        "label": "Bit 分组ID", "help": "可选；创建窗口时会作为 groupId 提交，用于在比特浏览器里归类窗口。可在比特浏览器客户端的分组上复制分组 ID",
+    },
+    {
+        "key": "BIT_OPEN_HEADLESS", "file": "bitbrowser.py", "type": "bool", "group": "比特浏览器",
+        "label": "无头启动窗口", "help": "打开比特窗口时追加 --headless=new 启动参数；False=显示窗口，True=无头启动",
+    },
+    {
+        "key": "BIT_KEEP_BROWSER_OPEN", "file": "bitbrowser.py", "type": "bool", "group": "比特浏览器",
+        "label": "保留浏览器", "help": "调试时可开启，任务结束后不自动关闭比特窗口",
+    },
+    {
+        "key": "BIT_ONE_PROFILE_PER_ACCOUNT", "file": "bitbrowser.py", "type": "bool", "group": "比特浏览器",
+        "label": "一号一窗口", "help": "每个账号强制创建新比特窗口，用完关闭并删除，禁止复用固定窗口",
+    },
+    {
+        "key": "BIT_DELETE_PROFILE_AFTER_RUN", "file": "bitbrowser.py", "type": "bool", "group": "比特浏览器",
+        "label": "结束后删除窗口", "help": "一号一窗口模式下，任务结束后删除本轮创建的比特窗口",
+    },
+    {
+        "key": "BIT_RANDOM_FINGERPRINT", "file": "bitbrowser.py", "type": "bool", "group": "比特浏览器",
+        "label": "创建窗口随机指纹", "help": "创建比特窗口时 browserFingerPrint 传空对象，由比特随机生成指纹",
+    },
+    {
+        "key": "BIT_CORE_VERSION", "file": "bitbrowser.py", "type": "str", "group": "比特浏览器",
+        "label": "内核版本", "help": "browserFingerPrint.coreVersion；留空使用比特默认内核",
+    },
+    {
+        "key": "BIT_RANDOM_PROFILE_NAME_ON_CREATE", "file": "bitbrowser.py", "type": "bool", "group": "比特浏览器",
+        "label": "创建窗口随机名称", "help": "创建比特窗口时自动生成不同名称，避免固定窗口名",
+    },
+    {
+        "key": "BIT_PROFILE_NAME_PREFIX", "file": "bitbrowser.py", "type": "str", "group": "比特浏览器",
+        "label": "随机名称前缀", "help": "默认 bit；实际名称格式类似 bit-时间戳-随机码",
+    },
+    {
+        "key": "BIT_CREATE_USE_PROXY_POOL", "file": "bitbrowser.py", "type": "bool", "group": "比特浏览器",
+        "label": "创建窗口使用代理池", "help": "创建比特窗口时从配置页「代理池」随机取一个代理，写入自定义代理（proxyMethod=2）",
+    },
+    {
+        "key": "BIT_CODEX_CALLBACK_TIMEOUT", "file": "bitbrowser.py", "type": "int", "group": "比特浏览器",
+        "label": "Codex回调超时", "help": "比特浏览器 Codex OAuth 等待 localhost:1455 callback 的最长秒数",
+    },
     {
         "key": "CODEX_OAUTH_DRIVER", "file": "codex.py", "type": "str", "group": "Codex",
         "label": "Codex授权驱动", "help": "默认推荐 roxy；protocol=原协议授权；roxy=用 RoxyBrowser；cloak=用 CloakBrowser；browser_use=用 Browser Use Cloud；skyvern=用 Skyvern；same_as_registration=跟随注册驱动",
@@ -324,6 +384,10 @@ EDITABLE_FIELDS = [
     {
         "key": "OTP_POLL_INTERVAL", "file": "email.py", "type": "int", "group": "邮箱 / OTP",
         "label": "OTP 轮询间隔(秒)", "help": "每隔多少秒查一次新邮件",
+    },
+    {
+        "key": "MANUAL_OTP_FALLBACK", "file": "email.py", "type": "bool", "group": "邮箱 / OTP",
+        "label": "取码失败转人工输入", "help": "True=自动收码超时/失败时页面弹出输入框并浏览器提醒，手动填码后流程继续；False=直接判失败。覆盖注册、查活、换绑等全部取码步骤",
     },
     {
         "key": "EMAIL_SOURCE", "file": "email.py", "type": "str", "group": "邮箱 / OTP",
@@ -481,6 +545,11 @@ EDITABLE_FIELDS = [
         "key": "REMAIL_REQUEST_TIMEOUT", "file": "email.py", "type": "int", "group": "邮箱 / OTP",
         "label": "Remail 请求超时(秒)", "help": "Remail API 单次 HTTP 请求超时，默认 20 秒",
     },
+    {
+        "key": "REMAIL_RECYCLE_FAILED_EMAIL", "file": "email.py", "type": "bool", "group": "邮箱 / OTP",
+        "label": "Remail失败邮箱回收",
+        "help": "注册失败且邮箱未被消耗时，把邮箱和取件地址写回「通用 API 邮箱池」并标为可用，下次注册可直接复用（默认开启）",
+    },
     # ---- 浏览器地区画像 ----
     {
         "key": "BROWSER_LOCALE_PROFILE", "file": "browser.py", "type": "str", "group": "浏览器画像",
@@ -524,10 +593,23 @@ EDITABLE_FIELDS = [
         "label": "本地浏览器 JS 覆盖率最多条数", "help": "仅 Roxy/Cloak 生效；日志最多输出的已执行函数数，同时限制保存的脚本摘要数量，默认 1000，最大 10000",
     },
 
+    # ---- 风控 / 人工处理 ----
+    {
+        "key": "CF_CHALLENGE_MANUAL_WAIT", "file": "browser.py", "type": "bool", "group": "风控 / 人工处理",
+        "label": "Cloudflare 风控页转人工处理", "help": "True=页面被 Cloudflare 接管（Verify you are human 复选框 / Just a moment 验证页 / Attention Required 拦截页）时，WebUI 弹框+浏览器提醒你手动处理，并定时复检页面是否恢复；False=不等待，直接按原有逻辑继续/失败",
+    },
+    {
+        "key": "CF_CHALLENGE_POLL_INTERVAL", "file": "browser.py", "type": "int", "group": "风控 / 人工处理",
+        "label": "恢复检测间隔(秒)", "help": "每隔多少秒检测一次页面是否已恢复正常；恢复后注册流程自动继续",
+    },
+
     # ---- 代理池 ----
+    # PROXY_POOL = 默认分组；PROXY_GROUPS = 命名分组。两项都由「代理池分组管理」
+    # 组件维护（前端渲染成隐藏输入框，保存时随其它配置一起提交）。
     {
         "key": "PROXY_POOL", "file": "proxy.py", "type": "list_str_multiline", "group": "代理池",
-        "label": "代理池(每行一个)", "help": "每行一个代理 URL，留空行会被忽略；为空则不使用代理",
+        "label": "默认分组代理(每行一个)", "help": "默认分组的代理；未特别指定分组时所有任务都走这里。为空则直连",
+        "render": "hidden",
         "recommended_links": [
             {
                 "label": "IPWO 家宽",
@@ -550,6 +632,26 @@ EDITABLE_FIELDS = [
         ],
     },
     {
+        "key": "PROXY_GROUPS", "file": "proxy.py", "type": "proxy_groups", "group": "代理池",
+        "label": "命名分组代理", "help": "命名代理分组（例如 KN / IN）；由「代理池分组管理」组件维护",
+        "render": "hidden", "storage": "env",
+    },
+    {
+        "key": "DEFAULT_PROXY_GROUP", "file": "proxy.py", "type": "str", "group": "代理池",
+        "label": "默认分组名", "help": "哪个分组是默认分组（未指定分组的任务都走它）；由「代理池分组管理」组件的「设为默认」维护",
+        "render": "hidden", "storage": "env",
+    },
+    {
+        "key": "PROXY_TEST_GEO_URLS", "file": "proxy.py", "type": "list_str_multiline", "group": "代理池",
+        "label": "代理出口测试接口(每行一个)", "help": "代理分组里「测试」按钮使用的出口信息接口，按顺序探活；默认使用 IP2Location，失败时自动尝试后续接口",
+        # 配置页该位置由「代理池分组」组件（Menu+Table+编辑弹框）占据，测试接口仅在 .env 维护。
+        "render": "hidden", "storage": "env",
+    },
+    {
+        "key": "PROXY_TEST_TIMEOUT", "file": "proxy.py", "type": "float", "group": "代理池",
+        "label": "代理出口测试超时(秒)", "help": "单个代理出口测试的超时时间，建议 8-20 秒",
+    },
+    {
         "key": "PROXY_ADAPTIVE_ROUTING", "file": "proxy.py", "type": "bool", "group": "代理池",
         "label": "启用自适应代理池", "help": "遇到 403/429/网络失败时临时冷却当前出口，自动从代理池切换其他出口；每个新出口会重新探测 Geo 并生成对应浏览器画像",
     },
@@ -570,9 +672,9 @@ EDITABLE_FIELDS = [
         "label": "套餐/Agent网络模式", "help": "用于查套餐和生成 Agent Token；auto=本地代理可用则走代理、未监听则直连；proxy=强制代理；direct=强制直连",
     },
     {
-        "key": "PLAN_CHECK_PROXY", "file": "proxy.py", "type": "str", "group": "代理池",
-        "label": "套餐/Agent专用代理", "help": "用于查套餐和生成 Agent Token；留空时 auto/proxy 从代理池选择。可能包含认证信息，仅保存到 .env",
-        "storage": "env", "secret": True,
+        "key": "PLAN_CHECK_PROXY", "file": "proxy.py", "type": "list_str_multiline", "group": "代理池",
+        "label": "套餐/Agent专用代理(每行一个)", "help": "用于查套餐和生成 Agent Token；每行一个代理 URL，每次请求随机选一个健康出口；留空时 auto/proxy 从代理池选择。可能包含认证信息，仅保存到 .env",
+        "storage": "env",
     },
     {
         "key": "PLAN_CHECK_TIMEOUT", "file": "proxy.py", "type": "float", "group": "代理池",
@@ -856,9 +958,15 @@ def _coerce_raw_value(raw: str, fallback, vtype: str):
         if vtype == "bool":
             return str(raw).strip().lower() in ("true", "1", "yes", "on", "y")
         if vtype == "int":
-            return int(str(raw).strip())
+            try:
+                return int(str(raw).strip())
+            except (ValueError, TypeError):
+                return fallback
         if vtype == "float":
-            return float(str(raw).strip())
+            try:
+                return float(str(raw).strip())
+            except (ValueError, TypeError):
+                return fallback
         if vtype == "list_str_multiline":
             text = str(raw)
             try:
@@ -868,6 +976,9 @@ def _coerce_raw_value(raw: str, fallback, vtype: str):
             except Exception:
                 pass
             return [line.strip() for line in text.splitlines() if line.strip()]
+        if vtype == "proxy_groups":
+            from config.proxy import parse_proxy_groups_text
+            return parse_proxy_groups_text(raw)
         return str(raw)
     except Exception:
         return fallback
@@ -900,7 +1011,7 @@ def get_config() -> list[dict]:
         else:
             value = fallback
 
-        if field["type"] in ("str", "list_str_multiline"):
+        if field["type"] in ("str", "list_str_multiline", "proxy_groups"):
             value = _normalize_config_value(value, field["type"])
         item = dict(field)
         item["storage"] = "env"
@@ -942,6 +1053,15 @@ def _normalize_config_value(value, vtype: str):
                 continue
             out.append(s)
         return out
+    if vtype == "proxy_groups":
+        from config.proxy import parse_proxy_groups_text
+        if value is None:
+            return {}
+        if isinstance(value, str):
+            return parse_proxy_groups_text(value)
+        if isinstance(value, dict):
+            return parse_proxy_groups_text(value)
+        return {}
     return value
 
 
@@ -952,11 +1072,21 @@ def _format_literal(value, vtype: str) -> str:
             value = value.strip().lower() in ("true", "1", "yes", "on")
         return "True" if value else "False"
     if vtype == "int":
-        return str(int(value))
+        if value is None or str(value).strip() == "":
+            return "0"
+        try:
+            return str(int(value))
+        except (ValueError, TypeError):
+            return "0"
     if vtype == "float":
-        return repr(float(value))
+        if value is None or str(value).strip() == "":
+            return "0.0"
+        try:
+            return repr(float(value))
+        except (ValueError, TypeError):
+            return "0.0"
     if vtype == "str":
-        s = str(value)
+        s = str(value if value is not None else "")
         # 用 repr 保证转义安全，但统一成双引号风格
         return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
     raise ValueError(f"_format_literal 不支持的类型: {vtype}")
@@ -1021,17 +1151,29 @@ def _atomic_write(path: Path, text: str) -> None:
 
 def _format_env_value(value, vtype: str) -> str:
     """把前端值格式化成适合写入 .env 的字符串。"""
+    if value is None or (isinstance(value, str) and value.strip() == ""):
+        return ""
     if vtype == "bool":
         if isinstance(value, str):
             value = value.strip().lower() in ("true", "1", "yes", "on", "y")
         return "True" if value else "False"
     if vtype == "int":
-        return str(int(value))
+        try:
+            return str(int(value))
+        except (ValueError, TypeError):
+            return ""
     if vtype == "float":
-        return repr(float(value))
+        try:
+            return repr(float(value))
+        except (ValueError, TypeError):
+            return ""
     if vtype == "list_str_multiline":
         lines = _normalize_config_value(value, vtype)
         return "\n".join(lines) if lines else "[]"
+    if vtype == "proxy_groups":
+        from config.proxy import format_proxy_groups_text
+        groups = _normalize_config_value(value, vtype)
+        return format_proxy_groups_text(groups) if groups else ""
     if vtype == "str":
         return _normalize_config_value(value, vtype)
     return "" if value is None else str(value)

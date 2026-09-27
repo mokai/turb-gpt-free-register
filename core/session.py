@@ -166,6 +166,16 @@ class BrowserSession:
 
         # 设置代理
         if self.proxy:
+            # 环境里的 no_proxy='*' 在 libcurl 语义里是"禁用所有代理"：不只是跳过
+            # 环境代理，还会把下面**显式设置**的 session.proxies 一起绕过，请求直接
+            # 从本机出口出去（表现为出口地区画像变成本机地区、按地区下发的 Plus
+            # 活动查不到，套餐永远显示"无试用资格"）。先把 '*' 换成只覆盖回环。
+            try:
+                from core.browser_client_ready import ensure_loopback_no_proxy
+
+                ensure_loopback_no_proxy()
+            except Exception:
+                logger.debug("[指纹] 规整 no_proxy 失败", exc_info=True)
             self.session.proxies = {
                 "http": self.proxy,
                 "https": self.proxy,

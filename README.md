@@ -402,6 +402,11 @@ REMAIL_SUPPLY_POLICY=public_only
 `REMAIL_SUPPLY_POLICY` 默认为 `public_only`，也可改为 `private_first`。每个注册任务会创建一个
 对应模式的订单，验证码通过 `/v1/pickup` 获取；Remail 订单余额和对应项目库存需可用。
 
+注册失败且邮箱尚未被 OpenAI 消耗时，项目默认会把「邮箱 + 收件地址（pickup 链接）」写回
+本地「通用 API 邮箱池」并标记为可用（`REMAIL_RECYCLE_FAILED_EMAIL=True`，可在 WebUI
+「配置 → 邮箱 / OTP → Remail」关闭），下次注册可直接领取复用，不必重新下单。已在 OpenAI
+侧消耗（创建接口已通过、账号已注册）或已废弃的邮箱不会回池。
+
 ---
 
 ### 2. 配置注册驱动

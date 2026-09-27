@@ -102,8 +102,13 @@ from config.openai_protocol import (
 # ---------- 代理池 ----------
 from config.proxy import (
     PROXY_POOL,
+    PROXY_GROUPS,
+    DEFAULT_PROXY_GROUP,
+    PROXY_TEST_GEO_URLS,
+    PROXY_TEST_TIMEOUT,
     PLAN_CHECK_PROXY_MODE,
     PLAN_CHECK_PROXY,
+    EMAIL_CHANGE_PROXY_POOL,
     PLAN_CHECK_TIMEOUT,
     PLAN_CHECK_MAX_ATTEMPTS,
     PLAN_CHECK_RETRY_DELAY,
@@ -117,6 +122,20 @@ from config.proxy import (
     PLAN_CHECK_MIN_INTERVAL,
     PLAN_CHECK_JITTER,
     pick_proxy,
+    proxy_groups,
+    proxy_group_names,
+    proxy_group_pool,
+    resolve_group_pool,
+    resolve_group_pools,
+    normalize_group_name,
+    is_default_group,
+    parse_proxy_groups_text,
+    format_proxy_groups_text,
+    set_task_pool,
+    get_task_pool,
+    get_task_group_name,
+    clear_task_pool,
+    task_pool,
     PROXY,
 )
 
@@ -200,6 +219,7 @@ _RELOADABLE_SUBMODULES = (
     "config.email",
     "config.twofa",
     "config.roxybrowser",
+    "config.bitbrowser",
     "config.cloakbrowser",
     "config.browser_use",
     "config.skyvern",
@@ -237,9 +257,9 @@ def reload_all() -> list[str]:
 def _refresh_top_level_constants() -> None:
     """把刚 reload 的子模块的常量重新拷一份到 config 包顶层。"""
     import config as _self
-    from config import browser, openai_protocol, proxy as _proxy, register, email, twofa, roxybrowser, cloakbrowser, browser_use, skyvern, codex, extract_link, sub2api, humanize, flow_trigger
+    from config import browser, openai_protocol, proxy as _proxy, register, email, twofa, roxybrowser, bitbrowser, cloakbrowser, browser_use, skyvern, codex, extract_link, sub2api, humanize, flow_trigger
     # 简单粗暴：枚举一遍重要常量，覆盖到 _self
-    for src in (browser, openai_protocol, _proxy, register, email, twofa, roxybrowser, cloakbrowser, browser_use, skyvern, codex, extract_link, sub2api, humanize, flow_trigger):
+    for src in (browser, openai_protocol, _proxy, register, email, twofa, roxybrowser, bitbrowser, cloakbrowser, browser_use, skyvern, codex, extract_link, sub2api, humanize, flow_trigger):
         for k in dir(src):
             if k.isupper() or k in ("pick_proxy", "pick_browser_profile", "build_browser_environment", "validate_browser_profile"):
                 setattr(_self, k, getattr(src, k))
@@ -269,9 +289,15 @@ __all__ = [
     "OPENAI_PROXY_RETRY_MAX_ATTEMPTS", "OPENAI_PROXY_RETRY_DELAY", "OPENAI_PREFLIGHT_TIMEOUT",
     # proxy
     "PROXY_POOL", "PLAN_CHECK_PROXY_MODE", "PLAN_CHECK_PROXY",
+    "PROXY_GROUPS", "DEFAULT_PROXY_GROUP", "PROXY_TEST_GEO_URLS", "PROXY_TEST_TIMEOUT",
+    "EMAIL_CHANGE_PROXY_POOL",
     "PLAN_CHECK_TIMEOUT", "PLAN_CHECK_MAX_ATTEMPTS", "PLAN_CHECK_RETRY_DELAY",
     "PLAN_CHECK_REGISTRATION_RECHECK_DELAY", "PLAN_CHECK_WORKERS", "PLAN_CHECK_QUEUE_LIMIT",
     "PLAN_CHECK_MIN_INTERVAL", "PLAN_CHECK_JITTER", "pick_proxy", "PROXY",
+    "proxy_groups", "proxy_group_names", "proxy_group_pool", "resolve_group_pool",
+    "resolve_group_pools", "normalize_group_name", "is_default_group",
+    "parse_proxy_groups_text", "format_proxy_groups_text",
+    "set_task_pool", "get_task_pool", "get_task_group_name", "clear_task_pool",
     "PROXY_ADAPTIVE_ROUTING", "PROXY_COOLDOWN_403_SECONDS",
     "PROXY_COOLDOWN_429_SECONDS", "PROXY_MAX_ROUTE_ATTEMPTS",
     # register

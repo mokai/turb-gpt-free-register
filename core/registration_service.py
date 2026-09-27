@@ -289,69 +289,81 @@ def _run_one_job(job_id: int, log_file: str) -> None:
         _deactivate_job(job_id)
         return
 
+    # 注册页选中的代理分组：优先级高于全局代理配置。任务级设置只作用于本线程，
+    # 因此在 finally 里必须清理，避免污染同线程里的下一个任务。
+    task_pool_applied = _apply_job_proxy_group(job_id, current, log_logger)
+
     db.update_job(job_id, status="running", started_at=datetime.now().isoformat(timespec="seconds"))
 
     email: str | None = None
-    try:
-        with _JobLogContext(log_file):
-            from main import run_registration
-            log_logger.info(f"[Job {job_id}] 开始注册任务")
-            email, name, birthday = _prepare_registration_args()
-            db.update_job(job_id, email=email)
-            check_stop_requested()
-            def _on_email_acquired(acquired_email: str) -> None:
-                nonlocal email
-                email = str(acquired_email or "").strip() or None
-                if email:
-                    db.update_job(job_id, email=email)
-                    log_logger.info(f"[Job {job_id}] 页面已找到邮箱输入框，已分配邮箱: {email}")
 
-            result = run_registration(
-                email=email,
-                name=name,
-                birthday=birthday,
-                on_email_acquired=_on_email_acquired,
+    # 任务日志句柄必须覆盖异常分支：失败信息（含堆栈）是在 except 里写的，
+    # 如果句柄只包住 try 内部，那些行就只会进控制台，WebUI「查看日志」里看不到失败原因。
+    log_ctx = _JobLogContext(log_file)
+    try:
+        log_ctx.__enter__()
+    except Exception:
+        log_logger.exception(f"[Job {job_id}] 创建任务日志文件失败，本次失败信息只写控制台")
+
+    try:
+        from main import run_registration
+        log_logger.info(f"[Job {job_id}] 开始注册任务")
+        email, name, birthday = _prepare_registration_args()
+        db.update_job(job_id, email=email)
+        check_stop_requested()
+        def _on_email_acquired(acquired_email: str) -> None:
+            nonlocal email
+            email = str(acquired_email or "").strip() or None
+            if email:
+                db.update_job(job_id, email=email)
+                log_logger.info(f"[Job {job_id}] 页面已找到邮箱输入框，已分配邮箱: {email}")
+
+        result = run_registration(
+            email=email,
+            name=name,
+            birthday=birthday,
+            on_email_acquired=_on_email_acquired,
+        )
+        if is_stop_requested(job_id):
+            _release_unconsumed_job_email(email, "用户手动停止")
+            db.update_job(
+                job_id,
+                status="stopped",
+                network_traffic=(result or {}).get("network_traffic") if isinstance(result, dict) else None,
+                error="用户手动停止",
+                completed_at=datetime.now().isoformat(timespec="seconds"),
             )
-            if is_stop_requested(job_id):
-                _release_unconsumed_job_email(email, "用户手动停止")
-                db.update_job(
-                    job_id,
-                    status="stopped",
-                    network_traffic=(result or {}).get("network_traffic") if isinstance(result, dict) else None,
-                    error="用户手动停止",
-                    completed_at=datetime.now().isoformat(timespec="seconds"),
-                )
-                log_logger.warning(f"[Job {job_id}] 已按用户请求停止")
-                return
-            if isinstance(result, dict) and result.get("success"):
-                db.update_job(
-                    job_id,
-                    status="success",
-                    email=result.get("email"),
-                    account_id=result.get("account_id"),
-                    network_traffic=result.get("network_traffic"),
-                    completed_at=datetime.now().isoformat(timespec="seconds"),
-                )
-                log_logger.info(f"[Job {job_id}] 成功: {result.get('email')}")
+            log_logger.warning(f"[Job {job_id}] 已按用户请求停止")
+            return
+        if isinstance(result, dict) and result.get("success"):
+            db.update_job(
+                job_id,
+                status="success",
+                email=result.get("email"),
+                account_id=result.get("account_id"),
+                network_traffic=result.get("network_traffic"),
+                completed_at=datetime.now().isoformat(timespec="seconds"),
+            )
+            log_logger.info(f"[Job {job_id}] 成功: {result.get('email')}")
+        else:
+            # 注意：失败也可能伴随 account_id（如 Codex 失败但账号已注册成功）
+            err = (result or {}).get("error") if isinstance(result, dict) else "unknown"
+            result_email = (result or {}).get("email") if isinstance(result, dict) else None
+            db.update_job(
+                job_id,
+                status="failed",
+                email=result_email,
+                account_id=(result or {}).get("account_id") if isinstance(result, dict) else None,
+                network_traffic=(result or {}).get("network_traffic") if isinstance(result, dict) else None,
+                error=str(err)[:500],
+                completed_at=datetime.now().isoformat(timespec="seconds"),
+            )
+            email_to_handle = str(result_email or email or "").strip()
+            if _should_disable_failed_registration_email(err):
+                _disable_job_email(email_to_handle, str(err))
             else:
-                # 注意：失败也可能伴随 account_id（如 Codex 失败但账号已注册成功）
-                err = (result or {}).get("error") if isinstance(result, dict) else "unknown"
-                result_email = (result or {}).get("email") if isinstance(result, dict) else None
-                db.update_job(
-                    job_id,
-                    status="failed",
-                    email=result_email,
-                    account_id=(result or {}).get("account_id") if isinstance(result, dict) else None,
-                    network_traffic=(result or {}).get("network_traffic") if isinstance(result, dict) else None,
-                    error=str(err)[:500],
-                    completed_at=datetime.now().isoformat(timespec="seconds"),
-                )
-                email_to_handle = str(result_email or email or "").strip()
-                if _should_disable_failed_registration_email(err):
-                    _disable_job_email(email_to_handle, str(err))
-                else:
-                    _release_unconsumed_job_email(email_to_handle, str(err))
-                log_logger.error(f"[Job {job_id}] 失败: {err}")
+                _release_unconsumed_job_email(email_to_handle, str(err))
+            log_logger.error(f"[Job {job_id}] 失败: {err}")
     except StopRequested as exc:
         _release_unconsumed_job_email(email, str(exc))
         log_logger.warning(f"[Job {job_id}] 已停止: {exc}")
@@ -384,7 +396,43 @@ def _run_one_job(job_id: int, log_file: str) -> None:
             completed_at=datetime.now().isoformat(timespec="seconds"),
         )
     finally:
+        if task_pool_applied:
+            try:
+                from config.proxy import clear_task_pool
+
+                clear_task_pool()
+            except Exception:
+                pass
         _deactivate_job(job_id)
+        log_ctx.__exit__(None, None, None)
+
+
+def _apply_job_proxy_group(job_id: int, job: dict, log_logger) -> bool:
+    """把任务上记录的代理分组写入当前线程；返回是否真的设置了任务级代理池。"""
+    group = str((job or {}).get("proxy_group") or "").strip()
+    if not group:
+        return False
+    try:
+        from config.proxy import clear_task_pool, resolve_group_pool, set_task_pool
+
+        pool = resolve_group_pool(group)
+        if pool:
+            set_task_pool(pool, name=group)
+            log_logger.info(
+                f"[Job {job_id}] 使用指定代理分组「{group}」（{len(pool)} 个出口），优先于全局代理配置"
+            )
+            return True
+        if pool == []:
+            log_logger.warning(f"[Job {job_id}] 代理分组「{group}」为空，已回退默认代理池")
+            clear_task_pool()
+            return False
+        log_logger.warning(
+            f"[Job {job_id}] 代理分组「{group}」不存在（可能已被删除），已回退全局代理配置"
+        )
+        return False
+    except Exception as exc:
+        log_logger.warning(f"[Job {job_id}] 应用代理分组失败：{type(exc).__name__}: {exc}")
+        return False
 
 
 def _run_codex_retry_job(job_id: int, log_file: str, email: str, account_id: int) -> None:
@@ -396,6 +444,7 @@ def _run_codex_retry_job(job_id: int, log_file: str, email: str, account_id: int
         _deactivate_job(job_id)
         return
 
+    task_pool_applied = _apply_job_proxy_group(job_id, current, logging.getLogger(__name__))
     db.update_job(job_id, status="running", started_at=datetime.now().isoformat(timespec="seconds"))
     try:
         result = codex_retry_service.run_worker(
@@ -433,6 +482,13 @@ def _run_codex_retry_job(job_id: int, log_file: str, email: str, account_id: int
         codex_retry_service.release(email)
         logger.exception("[Job %s] Codex 补跑异常", job_id)
     finally:
+        if task_pool_applied:
+            try:
+                from config.proxy import clear_task_pool
+
+                clear_task_pool()
+            except Exception:
+                pass
         _deactivate_job(job_id)
 
 
@@ -440,7 +496,12 @@ def _run_codex_retry_job(job_id: int, log_file: str, email: str, account_id: int
 # 公共接口
 # ============================================================
 
-def submit_registration(count: int = 1, email_source: str | None = None, workers: int | None = None) -> list[dict]:
+def submit_registration(
+    count: int = 1,
+    email_source: str | None = None,
+    workers: int | None = None,
+    proxy_group: str | None = None,
+) -> list[dict]:
     """
     创建 N 个注册任务并提交到线程池。
     email_source 仅记录到 DB；实际邮箱来源固定为 Outlook 账号池。
@@ -459,7 +520,7 @@ def submit_registration(count: int = 1, email_source: str | None = None, workers
         effective_workers = get_executor_workers()
         jobs = []
         for _ in range(count):
-            job = db.create_job(email_source=email_source)
+            job = db.create_job(email_source=email_source, proxy_group=proxy_group)
             try:
                 executor.submit(_run_one_job, job["id"], job["log_file"])
             except Exception as exc:

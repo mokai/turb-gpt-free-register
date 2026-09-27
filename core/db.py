@@ -6,6 +6,7 @@ SQLite 持久化层（JSON/TXT 仅用于首次迁移）。
 """
 import hashlib
 import json
+import re
 import sqlite3
 import threading
 import uuid
@@ -443,10 +444,130 @@ def _query_collection_page(collection: str, *, status: str | None = None,
     return rows, total, latest
 
 
+def _plan_group_path(group: str, suffix: str = "") -> str:
+    """构造 plan_check_groups 里的 JSON 路径（分组名可能含中文/空格，必须引号包裹）。
+
+    注意：分组记录挂在 payload.plan_check_groups 下，路径少了这一层就会
+    永远取到 NULL，表现为「筛选条件写了但一条都筛不出来」。
+    """
+    name = str(group or "").replace("\\", "").replace('"', "")[:40]
+    base = f'$.plan_check_groups."{name}"'
+    return f"{base}.{suffix}" if suffix else base
+
+
+_PLAN_STATE_ALIASES = {
+    "plus": "plus",
+    "paid": "plus",
+    "plus_trial": "plus_trial",
+    "trial": "plus_trial",
+    "plus_trial_eligible": "plus_trial",
+    "activity": "plus_trial",
+    "promo": "plus_trial",
+    "free": "free",
+    "free_no_trial": "free",
+    "no_activity": "free",
+    "failed": "failed",
+    "error": "failed",
+    "unknown": "unknown",
+    "none": "unknown",
+}
+
+
+def split_plan_group_state(state: str | None) -> tuple[str, str]:
+    """拆分筛选状态：``plus_trial:1月半价`` → ("plus_trial", "1月半价")。
+
+    冒号后面是具体的活动短标签，用于精确筛选某个活动的账号；
+    只写状态名表示「该状态下任意活动」。
+    """
+    text = str(state or "").strip()
+    key, _, detail = text.partition(":")
+    return normalize_plan_group_state(key), detail.strip()
+
+
+def normalize_plan_group_state(state: str | None) -> str:
+    key, _, _detail = str(state or "").partition(":")
+    return _PLAN_STATE_ALIASES.get(str(key or "").strip().lower(), "free")
+
+
+def _plan_group_condition(group: str, state: str) -> tuple[str, list[Any]]:
+    """生成单个「分组 + 状态」的 SQL 条件。
+
+    状态的第二段是活动短标签（activity_short），例如
+    ``JP|plus_trial:1月半价`` 只筛出该分组拿到「2 个月半价」活动的账号。
+    """
+    key, detail = split_plan_group_state(state)
+    plan_expr = "lower(COALESCE(CAST(json_extract(payload, ?) AS TEXT), ''))"
+    trial_expr = "lower(COALESCE(CAST(json_extract(payload, ?) AS TEXT), ''))"
+    act_expr = "COALESCE(CAST(json_extract(payload, ?) AS TEXT), '')"
+    plan_path = _plan_group_path(group, "plan_type")
+    trial_path = _plan_group_path(group, "plus_trial_eligible")
+    act_path = _plan_group_path(group, "activity_short")
+    ok_path = _plan_group_path(group, "ok")
+
+    if key == "plus":
+        return (
+            f"({plan_expr} LIKE ? AND {plan_expr} NOT LIKE ?)",
+            [plan_path, "%plus%", plan_path, "%free%"],
+        )
+    if key == "plus_trial":
+        if detail:
+            return (
+                f"({plan_expr} = ? AND {act_expr} = ?)",
+                [plan_path, "free", act_path, detail],
+            )
+        # 没有活动短标签的历史记录靠 plus_trial_eligible 兜底，避免旧数据被漏掉。
+        return (
+            f"({plan_expr} = ? AND ({act_expr} <> '' OR {trial_expr} IN (?, ?, ?, ?)))",
+            [plan_path, "free", act_path, trial_path, "1", "true", "yes", "on"],
+        )
+    if key == "free":
+        # 「无活动」的 free：没有活动标签、也没标记 Plus 试用资格。
+        return (
+            f"({plan_expr} = ? AND {act_expr} = '' AND {trial_expr} NOT IN (?, ?, ?, ?))",
+            [plan_path, "free", act_path, trial_path, "1", "true", "yes", "on"],
+        )
+    if key == "failed":
+        return (
+            "(json_extract(payload, ?) IS NOT NULL AND COALESCE(CAST(json_extract(payload, ?) AS INTEGER), 0) = 0)",
+            [ok_path, ok_path],
+        )
+    # unknown：该分组还没有查询记录
+    return ("json_extract(payload, ?) IS NULL", [plan_path])
+
+
+def _plan_group_filter_sql(plan_group_filter) -> tuple[list[str], list[Any]]:
+    """把「分组|状态」多选条件转成 SQL。
+
+    plan_group_filter 支持字符串（逗号/换行分隔）或列表，多个条件之间是 OR。
+    """
+    if not plan_group_filter:
+        return [], []
+    items = plan_group_filter
+    if isinstance(items, str):
+        items = [part for part in re.split(r"[,\n]", items) if part.strip()]
+    clauses: list[str] = []
+    params: list[Any] = []
+    for item in items:
+        text = str(item or "").strip()
+        if not text:
+            continue
+        group, _, state = text.partition("|")
+        group = group.strip()
+        if not group:
+            continue
+        clause, clause_params = _plan_group_condition(group, state)
+        clauses.append(clause)
+        params.extend(clause_params)
+    if not clauses:
+        return [], []
+    return ["(" + " OR ".join(clauses) + ")"], params
+
+
 def _account_filter_sql(
     plan_filter: str | None = None,
     codex_filter: str | None = None,
     totp_filter: str | None = None,
+    plan_group_filter=None,
 ) -> tuple[list[str], list[Any]]:
     """把账号列表的套餐、Codex、2FA 过滤条件下推到 SQLite。
 
@@ -515,6 +636,10 @@ def _account_filter_sql(
         else:
             where.append(f"{totp_setup_expr} = ?")
             params.append(totp)
+
+    group_where, group_params = _plan_group_filter_sql(plan_group_filter)
+    where.extend(group_where)
+    params.extend(group_params)
     return where, params
 
 
@@ -883,14 +1008,34 @@ def list_email_pool_page(
         params.append(status)
     if q and str(q).strip():
         like = "%" + str(q).strip().lower() + "%"
-        # payload 覆盖邮箱池自身字段；source 和关联账号 payload 保持旧 WebUI
-        # 的搜索能力（例如搜索 generic_api 或已注册账号 token）。
-        where.append(
-            "(lower(ep.payload) LIKE ? OR lower(ep.source) LIKE ? OR EXISTS ("
-            "SELECT 1 FROM accounts AS a "
-            "WHERE a.email = ep.email COLLATE NOCASE AND lower(a.payload) LIKE ?))"
+        # 池记录自身的 email 显式匹配，不再依赖 payload 间接命中。
+        # payload 覆盖邮箱池自身字段；source 和关联账号的「当前生效字段」保持旧
+        # WebUI 的搜索能力（例如按邮箱来源或已注册账号的 token 搜池）。
+        #
+        # 关联账号只允许匹配下面这些仍在生效的字段，**不能**整段匹配 a.payload：
+        # 账号 payload 里存着换绑历史（original_email / email_history /
+        # original_email_line）和大量历史快照（extra_json、plan_check_result_json、
+        # plan_last_success_result_json、live_check_*），这些快照里的邮箱是换绑前
+        # 或上一次查套餐时的旧地址，而池记录的 email 已经是新邮箱。整段匹配会造成
+        # 「搜一个池里根本不存在的旧邮箱，却命中同一账号换绑后的当前邮箱那条池
+        # 记录」（搜 A 出 B），多换绑一次就会再漏一个旧地址。
+        account_fields = ("$.access_token", "$.note", "$.user_name", "$.user_id",
+                          "$.totp_secret", "$.email_source", "$.plan_type", "$.current_plan_type")
+        account_text = " || ' ' || ".join(
+            f"COALESCE(json_extract(a.payload, '{field}'), '')" for field in account_fields
         )
-        params.extend([like, like, like])
+        # json_extract 只在 payload 合法时可用；万一有脏数据，退回匹配原始 payload，
+        # 不能让整个邮箱池搜索直接报错。
+        account_match = (
+            f"CASE WHEN json_valid(a.payload) THEN lower({account_text}) "
+            "ELSE lower(a.payload) END LIKE ?"
+        )
+        where.append(
+            "(lower(ep.email) LIKE ? OR lower(ep.payload) LIKE ? OR lower(ep.source) LIKE ? "
+            "OR EXISTS (SELECT 1 FROM accounts AS a "
+            f"WHERE a.email = ep.email COLLATE NOCASE AND {account_match}))"
+        )
+        params.extend([like, like, like, like])
     clause = " AND ".join(where)
     order_by = "ep.created_at DESC, ep.id DESC" if source == "all" else "ep.id DESC"
     with _LOCK, closing(_sqlite_conn()) as conn:
@@ -940,6 +1085,110 @@ def list_email_pool_page(
             item["copy_line"] = item.get("email") or ""
         items.append(item)
     return {"items": items, "total": total, "offset": offset, "limit": limit, "latest": latest}
+
+
+# ============================================================
+# 邮箱池回收（换绑释放的原邮箱）
+# ============================================================
+
+#: 只有本地留存池记录的来源才存在“回到邮箱池”这个动作。临时邮箱（gptmail /
+#: cloudflare / mailnest / cloudmail / remail）的地址由远端服务按订单生成，
+#: 本地没有对应记录，既不该也无法补出一条池记录。
+_POOL_RECYCLE_SOURCES = {"outlook", "generic_api", "imap", "cloudflare_domain"}
+
+#: 池中记录缺失时，能否只凭账号记录里的素材补建出可用记录。
+_POOL_RECYCLE_REBUILDABLE = {"outlook", "cloudflare_domain"}
+
+
+def _pool_recycle_io(source: str):
+    """返回该来源对应的（读取、保存、按邮箱查找）三个函数。"""
+    if source == "outlook":
+        return _load_outlook, _save_outlook, _find_by_email
+    if source == "generic_api":
+        return _load_generic_api_emails, _save_generic_api_emails, _find_by_email
+    if source == "imap":
+        return _load_imap_emails, _save_imap_emails, _find_by_email
+    return _load_domain_pool, _save_domain_pool, _find_domain_email
+
+
+def recycle_email_to_pool(
+    email: str, source: str, *, note: str | None = None, credentials: dict | None = None,
+) -> dict:
+    """换绑成功后把原邮箱按来源放回本地邮箱池（status=available，可再次领取）。
+
+    ``source`` 必须是账号**换绑前**的 ``email_source``：``finish_account_email_change``
+    会把账号来源改写成新邮箱的来源，事后再猜必然认错来源。
+
+    与 ``release_unconsumed_*`` 的区别：那组函数只回收「领取后没注册成功」的
+    邮箱，且池中状态必须仍是 used，同时账号表里不能存在同名主邮箱。这里回收的
+    是刚被服务端释放的**已注册**邮箱，账号表里已经换成新邮箱，所以必须走这条
+    独立路径。
+
+    返回 ``{"ok", "source", "mode", "message"}``，mode 取值：
+      - ``reset``：池中已有记录，复位为 available（保留原 id 与取码素材）；
+      - ``insert``：池中缺记录但来源可重建（Outlook 有账号保存的凭证，域名邮箱
+        只需地址），补建一条 available 记录；
+      - ``skipped``：该来源不进本地池，或缺少重建材料（通用 API / IMAP 的连接
+        配置只存在于池记录里，补建出来也取不到验证码）。
+    """
+    target = str(email or "").strip()
+    source = str(source or "").strip().lower()
+    if source == "domain":
+        source = "cloudflare_domain"
+    if not target:
+        return {"ok": False, "source": source, "mode": "skipped", "message": "原邮箱为空"}
+    if source not in _POOL_RECYCLE_SOURCES:
+        label = source or "未知来源"
+        return {
+            "ok": False, "source": source, "mode": "skipped",
+            "message": f"{label} 是远端临时邮箱，本地邮箱池没有该来源的记录，不回收",
+        }
+
+    loader, saver, finder = _pool_recycle_io(source)
+    with _LOCK:
+        # 原邮箱仍作为其它账号的在用主邮箱时不能回池，否则会让两个账号共用同一邮箱。
+        holder = _find_by_email(_load_accounts(), target)
+        if holder is not None:
+            return {
+                "ok": False, "source": source, "mode": "skipped",
+                "message": f"该邮箱仍是账号 #{holder.get('id')} 的在用主邮箱，跳过回池",
+            }
+
+        rows = loader()
+        row = finder(rows, target)
+        if row is not None:
+            row["status"] = "available"
+            row["used_at"] = None
+            if note is not None:
+                row["note"] = note
+            saver(rows)
+            return {"ok": True, "source": source, "mode": "reset", "message": "已复位为可用邮箱"}
+
+        if source not in _POOL_RECYCLE_REBUILDABLE:
+            return {
+                "ok": False, "source": source, "mode": "skipped",
+                "message": "邮箱池中已无该邮箱记录，且该来源的连接配置只存在于池记录里，无法重建",
+            }
+
+        new_row: dict[str, Any] = {
+            "id": _next_id(rows), "email": target, "status": "available",
+            "used_at": None, "note": note, "created_at": _now(),
+        }
+        if source == "outlook":
+            cred = credentials or {}
+            password = str(cred.get("password") or "").strip()
+            refresh_token = str(cred.get("refresh_token") or "").strip()
+            if not password or not refresh_token:
+                return {
+                    "ok": False, "source": source, "mode": "skipped",
+                    "message": "邮箱池中已无该邮箱记录，账号里也没有完整的 Outlook 凭证，无法重建",
+                }
+            new_row["password"] = password
+            new_row["client_id"] = str(cred.get("client_id") or "").strip()
+            new_row["refresh_token"] = refresh_token
+        rows.append(new_row)
+        saver(rows)
+        return {"ok": True, "source": source, "mode": "insert", "message": "已补建为可用邮箱"}
 
 
 def _get_conn() -> sqlite3.Connection:
@@ -1257,8 +1506,167 @@ def recover_interrupted_plan_checks() -> int:
         return recovered
 
 
-def update_account_plan_check(acc_id: int | None = None, email: str | None = None, result: dict | None = None) -> bool:
-    """更新账号套餐/Plus 试用资格查询结果。"""
+def _plan_group_record(result: dict) -> dict:
+    """从套餐查询结果里抽取「按分组」展示所需的字段。
+
+    activity_* 是这个分组出口拿到的 Plus 活动（1 个月免费 / 半价…），
+    列表标签按「分组 + 活动」渲染，因此必须和分组一起落库。
+    """
+    from core.plan_activity import activity_of_result
+
+    activity = activity_of_result(result) or {}
+    return {
+        "ok": bool(result.get("ok")),
+        "status": "success" if result.get("ok") else "failed",
+        "plan_type": result.get("current_plan_type") or result.get("plan_type"),
+        "plus_trial_eligible": bool(result.get("plus_trial_eligible")),
+        "activity_id": activity.get("id") or "",
+        "activity_short": activity.get("short") or "",
+        "activity_title": activity.get("title") or "",
+        "checked_at": result.get("checked_at"),
+        "error": None if result.get("ok") else result.get("error"),
+        "http_status": result.get("http_status"),
+        "proxy_used": result.get("proxy_used"),
+        "proxy_mode": result.get("proxy_mode"),
+        "network_route": result.get("network_route"),
+        "expires_at": result.get("expires_at"),
+        "renews_at": result.get("renews_at"),
+        "billing_period": result.get("billing_period"),
+        "billing_currency": result.get("billing_currency"),
+        "discount_amount": result.get("discount_amount"),
+        "discount_type": result.get("discount_type"),
+        "discount_expires_at": result.get("discount_expires_at"),
+        "discount_promo_campaign_id": result.get("discount_promo_campaign_id"),
+        "plus_trial_discount_percentage": result.get("plus_trial_discount_percentage"),
+    }
+
+
+# 同一个账号可以对多个代理分组分别查询，一轮查询里各分组是顺序执行的，
+# 相邻两次查询通常只隔几十秒；超过这个窗口的分组记录属于「上一轮的缓存」。
+_PLAN_GROUP_RUN_WINDOW_SECONDS = 1800
+
+
+def _plan_group_stamp(record: Any) -> float | None:
+    """取分组记录的 checked_at 时间戳；缺失或无法解析时返回 None。"""
+    if not isinstance(record, dict):
+        return None
+    raw = str(record.get("checked_at") or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def _configured_plan_group_names() -> set[str]:
+    """当前「代理池」里还存在的分组名（规范化后）；取不到时返回空集合。"""
+    try:
+        from config.proxy import normalize_group_name, proxy_group_names
+
+        return {normalize_group_name(name) for name in proxy_group_names() if str(name or "").strip()}
+    except Exception:
+        return set()
+
+
+def prune_stale_plan_groups(groups: Any) -> dict:
+    """只保留「最近一轮」查询的分组记录，丢掉上一轮的缓存。
+
+    plan_check_groups 是只增不减的：换了分组去查，旧分组的记录会一直留在里面，
+    列表的套餐列会把所有分组都渲染成标签（例如早就没在用的 JP 标签挂了好几天），
+    看起来就像"查询命中了缓存"。收敛规则两条：
+
+    1. 以最新一条 checked_at 为基准，丢弃早于窗口的旧记录；
+    2. 丢弃代理池里已经不存在的分组（分组已删除/改名后的残留记录）。
+
+    时间无法解析的记录、以及会让结果变空的收敛（配置读不出来时）都保守保留，
+    不做无依据的删除。
+    """
+    if not isinstance(groups, dict):
+        return {}
+    if len(groups) < 2:
+        return dict(groups)
+
+    stamps = {name: _plan_group_stamp(record) for name, record in groups.items()}
+    known = [ts for ts in stamps.values() if ts is not None]
+    if known:
+        latest = max(known)
+        windowed = {
+            str(name): record
+            for name, record in groups.items()
+            if stamps.get(name) is None or (latest - stamps[name]) <= _PLAN_GROUP_RUN_WINDOW_SECONDS
+        }
+    else:
+        windowed = dict(groups)
+
+    configured = _configured_plan_group_names()
+    if not configured:
+        return windowed
+    try:
+        from config.proxy import normalize_group_name
+
+        existing = {str(name): record for name, record in windowed.items()
+                    if normalize_group_name(name) in configured}
+    except Exception:
+        return windowed
+    return existing or windowed
+
+
+def scope_account_plan_groups(acc_id: int, group_names) -> bool:
+    """把分组缓存收敛到「本轮查询」的分组名单，名单外的旧记录直接删掉。
+
+    套餐查询是一轮一组结果写库的，如果只在写入端累加，换了分组去查时旧分组的
+    标签会一直挂在账号上（用户看到的就是"查询还在用缓存"）。因此每轮查询开始时
+    先把名单外的分组清掉，随后各组结果把名单内的记录逐条刷新。
+    名单内已存在的旧记录先保留，查询进行中也能看到上一轮的值。
+    """
+    try:
+        from config.proxy import normalize_group_name
+
+        wanted = {normalize_group_name(name) for name in (group_names or []) if str(name or "").strip()}
+    except Exception:
+        wanted = {str(name).strip() for name in (group_names or []) if str(name or "").strip()}
+    if not wanted:
+        return False
+
+    with _LOCK:
+        accounts = _load_accounts()
+        row = next((r for r in accounts if int(r.get("id") or 0) == int(acc_id)), None)
+        if row is None:
+            return False
+        groups = row.get("plan_check_groups")
+        if not isinstance(groups, dict) or not groups:
+            return False
+
+        def _in_scope(name: str) -> bool:
+            try:
+                from config.proxy import normalize_group_name
+
+                return normalize_group_name(name) in wanted
+            except Exception:
+                return str(name).strip() in wanted
+
+        kept = {str(name): record for name, record in groups.items() if _in_scope(name)}
+        if len(kept) == len(groups):
+            return False
+        row["plan_check_groups"] = kept
+        row["updated_at"] = _now()
+        _save_accounts(accounts)
+        return True
+
+
+def update_account_plan_check(
+    acc_id: int | None = None,
+    email: str | None = None,
+    result: dict | None = None,
+    group: str | None = None,
+) -> bool:
+    """更新账号套餐/Plus 试用资格查询结果。
+
+    group 非空时，同时把本次结果写入 ``plan_check_groups[group]``：同一个账号
+    可以对多个代理分组分别查询，前端「套餐」列按分组展示多个状态
+    （例如 IN-free(可Plus试用) / KN-free）。
+    """
     result = result or {}
     with _LOCK:
         accounts = _load_accounts()
@@ -1332,6 +1740,23 @@ def update_account_plan_check(acc_id: int | None = None, email: str | None = Non
         row["token_expired"] = result.get("token_expired")
         row["token_expires_at"] = result.get("token_expires_at")
         row["plan_check_result_json"] = json.dumps(result, ensure_ascii=False)
+        # 按分组保存：同一账号可以有多个分组的查询状态并存。
+        if group:
+            try:
+                from config.proxy import normalize_group_name
+
+                gname = normalize_group_name(group)
+            except Exception:
+                gname = str(group).strip()
+            if gname:
+                groups = row.get("plan_check_groups")
+                if not isinstance(groups, dict):
+                    groups = {}
+                # 先收敛上一轮的旧分组再写入本轮结果：分组缓存只反映最近一轮查询，
+                # 否则换过分组的账号会一直挂着旧分组的标签（看起来像命中了缓存）。
+                groups = prune_stale_plan_groups(groups)
+                groups[gname] = _plan_group_record(result)
+                row["plan_check_groups"] = groups
         row["updated_at"] = _now()
         _save_accounts(accounts)
         return True
@@ -1547,6 +1972,86 @@ def _filtered_decorated_accounts(
     return sorted(decorated, key=lambda x: int(x.get("id") or 0), reverse=True)
 
 
+def plan_group_state_of(record: dict | None) -> str:
+    """把一条分组查询记录归类成筛选状态。
+
+    free 且有 Plus 活动时返回 ``plus_trial:<活动短标签>``（例如
+    ``plus_trial:1月半价``），这样筛选下拉能直接列出「哪个分组拿到了哪个活动」；
+    没有活动时返回 ``free``。
+    """
+    if not isinstance(record, dict) or not record:
+        return "unknown"
+    if not record.get("ok"):
+        return "failed"
+    plan = str(record.get("plan_type") or "").strip().lower()
+    if not plan:
+        return "unknown"
+    if "plus" in plan and "free" not in plan:
+        return "plus"
+    if plan == "free":
+        short = str(record.get("activity_short") or "").strip()
+        if short:
+            return f"plus_trial:{short}"
+        return "plus_trial" if record.get("plus_trial_eligible") else "free"
+    return "plus" if plan not in ("free",) else "free"
+
+
+def list_plan_group_states(archived: str | bool | None = False) -> list[dict]:
+    """列出账号里出现过的「代理分组 + 套餐状态」，供列表筛选下拉使用。
+
+    返回 [{group, state, value, label, count, activity_short, activity_title}]，
+    value 形如 ``IN|plus_trial:1月半价`` / ``KN|free``。
+    """
+    archived_clause = "1=1"
+    if str(archived).lower() in {"1", "true", "yes", "only"}:
+        archived_clause = "archived = 1"
+    elif str(archived).lower() in {"all", "*"}:
+        archived_clause = "1=1"
+    else:
+        archived_clause = "COALESCE(archived, 0) = 0"
+    _ensure_sqlite()
+    with closing(_sqlite_conn()) as conn:
+        rows = conn.execute(
+            f"SELECT payload FROM accounts WHERE {archived_clause}"
+        ).fetchall()
+    counter: dict[tuple[str, str], int] = {}
+    titles: dict[tuple[str, str], str] = {}
+    for row in rows:
+        try:
+            payload = json.loads(row["payload"])
+        except Exception:
+            continue
+        groups = (payload or {}).get("plan_check_groups")
+        if not isinstance(groups, dict):
+            continue
+        # 筛选项只列「最近一轮」查过的分组，和列表套餐列的展示口径保持一致。
+        groups = prune_stale_plan_groups(groups)
+        for name, record in groups.items():
+            state = plan_group_state_of(record if isinstance(record, dict) else None)
+            key = (str(name), state)
+            counter[key] = counter.get(key, 0) + 1
+            if isinstance(record, dict):
+                title = str(record.get("activity_title") or "").strip()
+                if title:
+                    titles[key] = title
+    state_labels = {"plus": "已开通Plus", "plus_trial": "free(可Plus试用)", "free": "free", "failed": "查询失败", "unknown": "未查询"}
+    out = []
+    for (group, state), count in counter.items():
+        key_name, detail = split_plan_group_state(state)
+        label_tail = detail or state_labels.get(key_name, key_name)
+        out.append({
+            "group": group,
+            "state": state,
+            "value": f"{group}|{state}",
+            "label": f"{group}-{label_tail}",
+            "count": count,
+            "activity_short": detail or "",
+            "activity_title": titles.get((group, state), ""),
+        })
+    out.sort(key=lambda item: (item["group"] != "默认", item["group"], item["state"]))
+    return out
+
+
 def list_account_plan_check_statuses(
     limit: int = 5000,
     offset: int = 0,
@@ -1557,11 +2062,12 @@ def list_account_plan_check_statuses(
     date_from: str | None = None,
     date_to: str | None = None,
     totp_filter: str | None = None,
+    plan_group_filter=None,
 ) -> dict:
     """返回不含 Token/邮箱密码的套餐查询轻量状态快照。"""
     fields = (
         "id", "email", "archived",
-        "plan_type", "current_plan_type", "plus_trial_eligible",
+        "plan_type", "current_plan_type", "plus_trial_eligible", "plan_check_groups",
         "plan_check_status", "plan_check_ok", "plan_check_error",
         "plan_check_trigger", "plan_check_queued_at", "plan_check_started_at",
         "plan_check_completed_at", "plan_checked_at", "plan_last_success_at",
@@ -1592,6 +2098,7 @@ def list_account_plan_check_statuses(
             plan_filter=plan_filter,
             codex_filter=codex_filter,
             totp_filter=totp_filter,
+            plan_group_filter=plan_group_filter,
         )
         candidates, total, latest = _query_collection_page(
             "accounts",
@@ -1605,6 +2112,11 @@ def list_account_plan_check_statuses(
             offset=offset,
         )
         rows = [_decorate_account(row) for row in candidates]
+        # 列表套餐列按分组展示：只下发最近一轮的分组结果，避免旧分组的缓存标签
+        # 一直挂在账号上（换过分组的账号看起来像"查询命中了缓存"）。
+        for row in rows:
+            if isinstance(row.get("plan_check_groups"), dict):
+                row["plan_check_groups"] = prune_stale_plan_groups(row.get("plan_check_groups")) or None
         items = []
         for row in rows:
             item = {"id": row.get("id"), "email": row.get("email")}
@@ -1636,6 +2148,7 @@ def list_account_plan_check_statuses(
                     "current_plan_type": row.get("current_plan_type"),
                     "plan_type": row.get("plan_type"),
                     "plus_trial_eligible": row.get("plus_trial_eligible"),
+                    "plan_check_groups": row.get("plan_check_groups"),
                     "extract_link_status": row.get("extract_link_status"),
                     "codex_status": row.get("codex_status"),
                     "codex_agent_status": row.get("codex_agent_status"),
@@ -1673,6 +2186,7 @@ def list_accounts(
     date_from: str | None = None,
     date_to: str | None = None,
     totp_filter: str | None = None,
+    plan_group_filter=None,
 ) -> list[dict]:
     # 非分页兼容接口也走同一条 SQL 分页路径，避免 limit=500 时先读取整张表。
     result = list_accounts_page(
@@ -1685,6 +2199,7 @@ def list_accounts(
         date_from=date_from,
         date_to=date_to,
         totp_filter=totp_filter,
+        plan_group_filter=plan_group_filter,
     )
     return result["items"]
 
@@ -1699,6 +2214,7 @@ def list_accounts_page(
     date_from: str | None = None,
     date_to: str | None = None,
     totp_filter: str | None = None,
+    plan_group_filter=None,
 ) -> dict:
     with _LOCK:
         limit = max(1, int(limit))
@@ -1707,6 +2223,7 @@ def list_accounts_page(
             plan_filter=plan_filter,
             codex_filter=codex_filter,
             totp_filter=totp_filter,
+            plan_group_filter=plan_group_filter,
         )
         candidates, total, latest = _query_collection_page(
             "accounts",
@@ -2537,6 +3054,53 @@ def import_generic_api_emails(records: list[dict]) -> tuple[int, int]:
         return inserted, skipped
 
 
+def upsert_generic_api_email(
+    email: str,
+    code_url: str,
+    status: str = "available",
+    note: str | None = None,
+) -> str:
+    """新增或更新一个通用 API 取码邮箱，返回 ``"inserted"`` / ``"updated"`` / ``""``。
+
+    与 ``import_generic_api_emails`` 的区别：邮箱已存在时不再跳过，而是刷新取码
+    地址、状态和备注。注册失败后把已购买邮箱放回池子（如 Remail 回收）依赖这个
+    幂等写入，同一邮箱反复失败也只会保留一条记录。
+    """
+    target = str(email or "").strip()
+    link = str(code_url or "").strip()
+    if not target or not link:
+        return ""
+    with _LOCK:
+        rows = _load_generic_api_emails()
+        row = _find_by_email(rows, target)
+        if row is not None:
+            row["code_url"] = link
+            row["status"] = status
+            if status == "available":
+                row["used_at"] = None
+            elif status in ("used", "failed", "disabled"):
+                row["used_at"] = row.get("used_at") or _now()
+            if note is not None:
+                row["note"] = note
+            row["updated_at"] = _now()
+            _save_generic_api_emails(rows)
+            return "updated"
+
+        row = {
+            "id": _next_id(rows),
+            "email": target,
+            "code_url": link,
+            "status": status,
+            "used_at": None,
+            "note": note,
+            "imported_at": _now(),
+        }
+        row["copy_line"] = _generic_api_email_line(row)
+        rows.append(row)
+        _save_generic_api_emails(rows)
+        return "inserted"
+
+
 def claim_next_generic_api_email() -> dict | None:
     """原子领取一个可用通用 API 邮箱并标记为 used。"""
     with _LOCK:
@@ -2964,6 +3528,7 @@ def _new_job_row(
     retry_action: str | None = None,
     email: str | None = None,
     account_id: int | None = None,
+    proxy_group: str | None = None,
 ) -> dict:
     job_uuid = str(uuid.uuid4())
     log_file = str(_LOG_DIR / f"{job_uuid}.log")
@@ -2978,6 +3543,8 @@ def _new_job_row(
         "retry_action": retry_action,
         "email_source": email_source,
         "email": email,
+        # 代理分组：注册页选中的分组名；空表示走全局默认代理池。
+        "proxy_group": str(proxy_group or "").strip() or None,
         "status": "pending",
         "error_message": None,
         "log_file": log_file,
@@ -2989,11 +3556,11 @@ def _new_job_row(
     }
 
 
-def create_job(email_source: str) -> dict:
+def create_job(email_source: str, proxy_group: str | None = None) -> dict:
     """创建一个首次执行的 pending 注册任务。"""
     with _LOCK:
         rows = _load_jobs()
-        row = _new_job_row(rows, email_source=email_source)
+        row = _new_job_row(rows, email_source=email_source, proxy_group=proxy_group)
         rows.append(row)
         _save_jobs(rows)
         return dict(row)
@@ -3044,6 +3611,8 @@ def create_retry_job(
             retry_action=("codex" if job_type == "codex_retry" else "registration"),
             email=email,
             account_id=account_id,
+            # 重试沿用原任务的代理分组，避免"重试后悄悄换出口"。
+            proxy_group=source.get("proxy_group"),
         )
         rows.append(row)
         _save_jobs(rows)
@@ -3080,6 +3649,20 @@ def update_job(
             row["account_id"] = account_id
         if network_traffic is not None:
             row["network_traffic"] = dict(network_traffic)
+        _save_jobs(rows)
+
+
+def update_job_payload_fields(job_id: int, fields: dict) -> None:
+    """把任意键合并写入任务 payload（例如 manual_live_check_ready 标记）。"""
+    if not isinstance(fields, dict) or not fields:
+        return
+    with _LOCK:
+        rows = _load_jobs()
+        row = next((r for r in rows if int(r.get("id") or 0) == int(job_id)), None)
+        if row is None:
+            return
+        row.update(fields)
+        row["updated_at"] = _now()
         _save_jobs(rows)
 
 

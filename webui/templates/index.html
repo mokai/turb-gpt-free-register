@@ -198,8 +198,8 @@
       width: 100%; max-width: 100%; min-width: 0;
       max-height: 320px; overflow: auto; line-height: 1.5;
     }
-    #logPanel, #retryLogPanel, #liveLogPanel, #totpLogPanel, #emailChangeLogPanel, #qrPanel { min-width: 0; max-width: 100%; overflow-x: hidden; }
-    #logPanel:not(.hidden), #retryLogPanel:not(.hidden), #liveLogPanel:not(.hidden), #totpLogPanel:not(.hidden), #emailChangeLogPanel:not(.hidden), #qrPanel:not(.hidden) {
+    #logPanel, #retryLogPanel, #liveLogPanel, #totpLogPanel, #planLogPanel, #emailChangeLogPanel, #qrPanel, #manualOtpPanel, #manualInterventionPanel, #pgmEditPanel, #clientErrorPanel { min-width: 0; max-width: 100%; overflow-x: hidden; }
+    #logPanel:not(.hidden), #retryLogPanel:not(.hidden), #liveLogPanel:not(.hidden), #totpLogPanel:not(.hidden), #planLogPanel:not(.hidden), #emailChangeLogPanel:not(.hidden), #qrPanel:not(.hidden), #manualOtpPanel:not(.hidden), #manualInterventionPanel:not(.hidden), #pgmEditPanel:not(.hidden), #clientErrorPanel:not(.hidden) {
       position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
       z-index: 1000; display: block; width: min(1100px, calc(100vw - 48px));
       max-height: min(760px, calc(100vh - 48px)); overflow: hidden;
@@ -207,11 +207,108 @@
       background: var(--surface); box-shadow: 0 0 0 9999px rgba(15,23,42,.45), 0 24px 70px rgba(15,23,42,.34);
     }
     #qrPanel:not(.hidden) { width: min(520px, calc(100vw - 48px)); text-align: center; }
-    #logPanel h3, #retryLogPanel h3, #liveLogPanel h3, #totpLogPanel h3, #emailChangeLogPanel h3, #qrPanel h3 { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
-    #logPanel h3 .btn, #retryLogPanel h3 .btn, #liveLogPanel h3 .btn, #totpLogPanel h3 .btn, #emailChangeLogPanel h3 .btn, #qrPanel h3 .btn { margin-left:auto; float:none !important; }
-    #logPanel .log, #retryLogPanel .log, #liveLogPanel .log, #totpLogPanel .log, #emailChangeLogPanel .log { max-height: calc(min(760px, calc(100vh - 48px)) - 74px); margin-top:0; }
+    #manualOtpPanel:not(.hidden) { width: min(600px, calc(100vw - 48px)); z-index: 1100; overflow-y: auto; }
+    .manual-otp-row { display:flex; gap:8px; align-items:flex-start; margin:6px 0; font-size:13px; }
+    .manual-otp-row .k { flex:0 0 76px; color: var(--muted); }
+    .manual-otp-row .v { flex:1; min-width:0; word-break:break-all; overflow-wrap:anywhere; }
+    .manual-otp-row .v a { color: var(--blue); }
+    .manual-otp-badge { padding:1px 8px; border-radius:999px; background:#eef4ff; color:#1d4ed8; font-size:12px; font-weight:500; }
+    .manual-otp-badge.warn { background:#fff7e6; color:#92600a; }
+    .manual-otp-code-row { display:flex; gap:8px; margin-top:10px; align-items:center; }
+    .manual-otp-code-row input {
+      flex:1; min-width:0; min-height:38px; padding:0 12px; border:1px solid var(--line); border-radius:8px;
+      font-size:17px; letter-spacing:3px; font-family: ui-monospace, Consolas, monospace;
+    }
+    .manual-otp-note { font-size:12px; color:var(--muted); margin-top:10px; line-height:1.7; }
+    #logPanel h3, #retryLogPanel h3, #liveLogPanel h3, #totpLogPanel h3, #planLogPanel h3, #emailChangeLogPanel h3, #qrPanel h3, #manualOtpPanel h3, #manualInterventionPanel h3, #pgmEditPanel h3, #clientErrorPanel h3 { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+    #logPanel h3 .btn, #retryLogPanel h3 .btn, #liveLogPanel h3 .btn, #totpLogPanel h3 .btn, #planLogPanel h3 .btn, #emailChangeLogPanel h3 .btn, #qrPanel h3 .btn, #manualOtpPanel h3 .btn, #manualInterventionPanel h3 .btn, #pgmEditPanel h3 .btn, #clientErrorPanel h3 .btn { margin-left:auto; float:none !important; }
+    /* 分组编辑弹框：固定高度 + 弹性分栏，头/脚固定，中间只有一个滚动区。
+       这样切分组/滚列表时标题和「保存分组」不会跟着滚走。 */
+    #pgmEditPanel:not(.hidden) {
+      width: min(920px, calc(100vw - 48px));
+      height: min(720px, calc(100vh - 48px));
+      max-height: none; display: flex; flex-direction: column;
+      overflow: hidden; padding: 16px 16px 0;
+    }
+    #pgmEditPanel .pgm-dlg-head { flex: none; }
+    #pgmEditPanel h3 { margin-bottom: 2px; }
+    #pgmEditPanel .pgm-dlg-meta { font-size: 12px; font-weight: 400; color: var(--muted); }
+    #pgmEditPanel .pgm-edit-tip {
+      font-size: 12px; color: var(--muted); line-height: 1.5; margin: 0 0 12px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    #manualOtpPanel h3 { flex-wrap: wrap; }
+    #manualOtpPanel h3 .manual-otp-badge { margin-left:0; }
+    #manualOtpPanel h3 #btnManualOtpNotify { margin-left:auto; }
+    #manualOtpPanel h3 #btnCloseManualOtp { margin-left:6px; }
+    /* Cloudflare 风控人工处理弹框：固定高度 + 弹性分栏，中间只有一个滚动区 */
+    #manualInterventionPanel:not(.hidden) {
+      width: min(620px, calc(100vw - 48px)); z-index: 1150;
+      display: flex; flex-direction: column; padding: 16px 16px 0;
+    }
+    #manualInterventionPanel h3 { flex-wrap: wrap; margin-bottom: 6px; }
+    #manualInterventionPanel h3 .manual-otp-badge { margin-left: 0; }
+    #manualInterventionPanel h3 #btnCloseManualIntervention { margin-left: auto; }
+    #manualInterventionPanel .mi-body { flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; }
+    #manualInterventionPanel .mi-foot { flex: none; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 12px 0 16px; }
+    #manualInterventionPanel .mi-status {
+      margin-top: 10px; padding: 10px 12px; border: 1px solid #dbeafe; border-radius: 8px;
+      background: #f5f9ff; color: #1d4ed8; font-size: 13px; line-height: 1.7; white-space: pre-line;
+    }
+    #manualInterventionPanel .mi-status.is-ok { border-color: #bbe7c8; background: #f3fbf5; color: #1a7f37; }
+    #manualInterventionPanel .mi-status.is-bad { border-color: #f3b7b7; background: #fff6f6; color: #b3261e; }
+    #manualInterventionPanel .mi-hint { margin-top: 10px; font-size: 13px; line-height: 1.8; }
+    /* 任务表里"该任务正卡在 Cloudflare 风控"的小徽标：点一下重新打开弹框 */
+    .cf-badge {
+      display: block; width: fit-content; margin-top: 4px; padding: 1px 8px;
+      border: 1px solid #f3b7b7; border-radius: 999px; background: #fff6f6; color: #b3261e;
+      font-size: 11px; font-weight: 500; cursor: pointer; white-space: nowrap;
+    }
+    .cf-badge:hover { background: #ffecec; }
+    #logPanel .log, #retryLogPanel .log, #liveLogPanel .log, #totpLogPanel .log, #planLogPanel .log, #emailChangeLogPanel .log { max-height: calc(min(760px, calc(100vh - 48px)) - 74px); margin-top:0; }
+    #logManualLiveBar {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      margin-top: 10px; padding: 10px 12px;
+      border: 1px solid #ffe2b8; border-radius: 8px; background: #fffaf0;
+    }
+    #logManualLiveBar.hidden { display: none !important; }
+    #logManualLiveBar .log-manual-live-hint { flex: 1; min-width: 200px; font-size: 13px; color: #8a5a00; line-height: 1.5; }
+    #logPanel:has(#logManualLiveBar:not(.hidden)) .log { max-height: calc(min(760px, calc(100vh - 48px)) - 140px); }
     #qrPanel img { display:block; max-width:min(360px, calc(100vw - 96px)); max-height:420px; margin:12px auto; border:1px solid var(--line); border-radius:10px; background:#fff; }
     #qrPanel .qr-link { display:block; word-break:break-all; white-space:normal; font-size:12px; color:var(--muted); margin-top:8px; }
+    /* 错误详情弹框：把原来撑满整行的长错误（如本地浏览器客户端没启动）收进弹框 */
+    #clientErrorPanel:not(.hidden) {
+      width: min(620px, calc(100vw - 48px)); z-index: 1200;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #clientErrorPanel h3 { flex-wrap: wrap; }
+    #clientErrorPanel h3 .err-dialog-badge {
+      flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: #fdecea; color: var(--red); font-size: 14px; font-weight: 700; line-height: 1;
+    }
+    #clientErrorPanel h3 .err-dialog-title { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; }
+    #clientErrorPanel .err-dialog-body { overflow-y: auto; max-height: calc(min(760px, calc(100vh - 48px)) - 132px); }
+    #clientErrorPanel .err-dialog-msg {
+      font-size: 13px; line-height: 1.8; color: var(--text);
+      white-space: pre-line; overflow-wrap: anywhere; word-break: break-word;
+    }
+    #clientErrorPanel .err-dialog-raw { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 10px; }
+    #clientErrorPanel .err-dialog-raw > summary {
+      cursor: pointer; font-size: 12px; color: var(--muted); user-select: none; outline: none;
+    }
+    #clientErrorPanel .err-dialog-raw > summary:hover { color: var(--blue); }
+    #clientErrorPanel .err-dialog-raw .log { max-height: 200px; font-size: 11px; white-space: pre-wrap; word-break: break-all; }
+    #clientErrorPanel .err-dialog-status { margin-top: 10px; padding: 8px 10px; border-radius: 6px; font-size: 12px; line-height: 1.7; }
+    #clientErrorPanel .err-dialog-status.ok { background: #edf8f1; border: 1px solid #b7e0c4; color: #166534; }
+    #clientErrorPanel .err-dialog-status.bad { background: #fff7e6; border: 1px solid #f3d99b; color: #92600a; }
+    #clientErrorPanel .err-dialog-status:empty { display: none; }
+    #clientErrorPanel .err-dialog-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+    #clientErrorPanel .err-dialog-actions .btn { min-height: 30px; }
+    #clientErrorPanel .err-dialog-actions .spacer { margin-left: auto; }
+    .reg-warn-summary { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .reg-warn-summary .reg-warn-summary-text { flex: 1; min-width: 200px; }
+    .reg-warn-summary .btn { min-height: 26px; }
     .hidden { display: none !important; }
     #toast {
       position: fixed; right: 18px; bottom: 18px; padding: 10px 14px; border-radius: 8px;
@@ -255,10 +352,38 @@
       box-shadow: 1px 0 0 rgba(15, 23, 42, 0.02);
     }
     .sidebar-brand {
+      position: relative;
       display: flex; align-items: center; gap: 10px;
       height: 64px; padding: 0 18px; flex-shrink: 0;
       border-bottom: 1px solid #f1f5f9;
     }
+    .sidebar-collapse-btn {
+      position: absolute; top: 19px; right: -13px; z-index: 201;
+      width: 26px; height: 26px;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: 1px solid #e2e8f0; border-radius: 50%;
+      background: #fff; color: #64748b; cursor: pointer;
+      box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12);
+      transition: background .15s ease, color .15s ease;
+    }
+    .sidebar-collapse-btn:hover { color: var(--sidebar-accent); background: var(--sidebar-accent-soft); }
+    .sidebar-collapse-btn svg {
+      width: 14px; height: 14px; stroke: currentColor; fill: none;
+      transition: transform .2s ease;
+    }
+    body.sidebar-collapsed { --sidebar-width: 64px; }
+    body.sidebar-collapsed .sidebar-collapse-btn svg { transform: rotate(180deg); }
+    body.sidebar-collapsed .sidebar-brand { padding: 0 12px; justify-content: center; gap: 0; }
+    body.sidebar-collapsed .sidebar-brand-title,
+    body.sidebar-collapsed .sidebar-item-label,
+    body.sidebar-collapsed .sidebar-footer a span,
+    body.sidebar-collapsed .sidebar-logout button span { display: none; }
+    body.sidebar-collapsed .app-sidebar .sidebar-nav button,
+    body.sidebar-collapsed .sidebar-footer a,
+    body.sidebar-collapsed .sidebar-logout button { justify-content: center; padding-left: 0; padding-right: 0; }
+    /* 过渡只在初始化完成后启用：避免首屏按 localStorage 收起时出现 232→64 的动画闪烁 */
+    body.ui-ready .app-sidebar { transition: width .18s ease; }
+    body.ui-ready { transition: padding-left .18s ease; }
     .sidebar-brand-icon {
       width: 28px; height: 30px; flex-shrink: 0;
     }
@@ -528,30 +653,30 @@
     }
     .jobs-table-v2-wrap { overflow: auto; padding: 0; }
     .jobs-table-v2 {
-      width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 14px;
+      width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 13px;
     }
     .jobs-table-v2 th, .jobs-table-v2 td {
-      padding: 12px 12px; border-bottom: 1px solid #ebeef5;
+      padding: 10px 8px; border-bottom: 1px solid #ebeef5;
       text-align: left; vertical-align: middle;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       color: #606266; box-sizing: border-box;
     }
     .jobs-table-v2 thead th {
-      background: #f5f7fa; color: #808093; font-size: 14px; font-weight: 600;
-      height: 44px; border-bottom: 1px solid #ebeef5;
+      background: #f5f7fa; color: #808093; font-size: 13px; font-weight: 600;
+      height: 42px; border-bottom: 1px solid #ebeef5;
       line-height: 1;
     }
-    .jobs-table-v2 thead th:first-child { padding-left: 16px; }
-    .jobs-table-v2 thead th:last-child { padding-right: 16px; }
-    .jobs-table-v2 tbody td { height: 50px; background: #fff; }
+    .jobs-table-v2 thead th:first-child { padding-left: 10px; }
+    .jobs-table-v2 thead th:last-child { padding-right: 10px; }
+    .jobs-table-v2 tbody td { height: 48px; background: #fff; }
     .jobs-table-v2 tbody tr:hover td { background: #f5f7fa; }
-    .jobs-table-v2 tbody td:first-child { padding-left: 16px; }
-    .jobs-table-v2 tbody td:last-child { padding-right: 16px; }
+    .jobs-table-v2 tbody td:first-child { padding-left: 10px; }
+    .jobs-table-v2 tbody td:last-child { padding-right: 10px; }
     .jobs-table-v2 .col-check {
-      width: 48px; padding-left: 16px; padding-right: 8px;
+      width: 34px; padding-left: 10px; padding-right: 8px;
       text-align: left; vertical-align: middle;
     }
-    .jobs-table-v2 .col-id { width: 90px; padding-left: 8px; vertical-align: middle; }
+    .jobs-table-v2 .col-id { width: 64px; padding-left: 4px; vertical-align: middle; font-size: 12px; }
     .jobs-table-v2 input[type="checkbox"] {
       width: 16px !important; height: 16px !important;
       min-width: 16px !important; min-height: 16px !important;
@@ -576,16 +701,18 @@
     .jobs-table-v2 input[type="checkbox"]:disabled {
       background: #fff; border-color: #dcdfe6; cursor: not-allowed; opacity: 1;
     }
-    .jobs-table-v2 .col-status { width: 110px; }
-    .jobs-table-v2 .col-email { min-width: 200px; width: 24%; }
-    .jobs-table-v2 .col-time { width: 170px; }
-    .jobs-table-v2 .col-traffic { width: 120px; white-space: nowrap; }
-    .jobs-table-v2 .col-error { width: auto; min-width: 160px; }
+    .jobs-table-v2 .col-status { width: 78px; }
+    /* 邮箱与错误列不给宽度：固定布局下这两列平分剩余空间（窗口越宽，错误信息越完整）。
+       错误列以前是 width:auto + min-width，在固定布局里会被前面的列挤到只剩几十像素。 */
+    .jobs-table-v2 .col-email { width: auto; }
+    .jobs-table-v2 .col-time { width: 112px; font-size: 12px; }
+    .jobs-table-v2 .col-traffic { width: 72px; white-space: nowrap; font-size: 12px; }
+    .jobs-table-v2 .col-error { width: auto; }
     .jobs-table-v2 .col-actions {
-      width: 168px; overflow: visible; text-overflow: clip; white-space: nowrap;
+      width: 146px; overflow: visible; text-overflow: clip; white-space: nowrap;
     }
     .jobs-table-v2 td.col-error {
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px;
     }
     .jobs-table-v2 .jobs-v2-pill {
       display: inline-flex; align-items: center; justify-content: center;
@@ -611,14 +738,14 @@
       display: inline-flex; align-items: center;
     }
     .jobs-table-v2 .jobs-v2-op {
-      min-width: 32px; width: 32px; height: 32px; margin-right: 8px; border: none; border-radius: 6px;
+      min-width: 28px; width: 28px; height: 28px; margin-right: 6px; border: none; border-radius: 6px;
       cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
       padding: 0; transition: all .2s; user-select: none; box-sizing: border-box;
       flex-shrink: 0;
     }
     .jobs-table-v2 .jobs-v2-op:last-child { margin-right: 0; }
     .jobs-table-v2 .jobs-v2-op svg {
-      width: 16px; height: 16px; stroke: currentColor; fill: none;
+      width: 14px; height: 14px; stroke: currentColor; fill: none;
       stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
     }
     .jobs-table-v2 .jobs-v2-op--view { background: rgba(144,147,153,.12); color: #909399; }
@@ -630,10 +757,9 @@
     .jobs-table-v2 .jobs-v2-op--otp { background: #ecf5ff; color: #409eff; }
     .jobs-table-v2 .jobs-v2-op--otp:hover { background: #409eff; color: #fff; }
     .jobs-table-v2 .manual-otp-input--v2 {
-      width: 86px; height: 32px; margin-right: 8px; padding: 0 8px;
+      width: 68px; height: 28px; margin-right: 6px; padding: 0 6px;
       border: 1px solid #dcdfe6; border-radius: 6px; font: inherit; font-size: 12px;
     }
-    .jobs-table-v2 .col-actions { width: 280px; }
     .jobs-table-v2 .jobs-v2-op--del { background: #ffe0e0; color: #e64545; }
     .jobs-table-v2 .jobs-v2-op--del:hover { background: #e64545; color: #fff; }
     .jobs-table-v2 .jobs-v2-op:disabled { opacity: .5; cursor: not-allowed; }
@@ -731,22 +857,34 @@
     }
     .accounts-table-v2 thead th:first-child { padding-left: 16px; }
     .accounts-table-v2 thead th:last-child { padding-right: 16px; }
+    /* 2026-09-22 列宽压缩：按接口真实内容实测宽度重新分配（每列 = 18px 内边距 + 实际内容宽）。
+       原值合计 1608px，其中 email(330)/time(170)/note(140)/password(120) 空余极大，
+       而 source 只能显示 "generic..."、plan 的「free（待查资格）」胶囊会溢出压到备注列、
+       time 的 "2026-09-22T08:57:28" 被截断。新值合计 1402px（更窄，内容区 ≥1402 就不会出现横向滚动条；
+       原先要 ≥1608 才不滚），窗口更宽时浏览器按比例
+       把剩余宽度均摊给所有列，因此窗口越宽只会越宽松，不会更挤。
+       实测依据：email 最长 29 字符≈234px、source 最长 generic_api≈78px、
+       password 固定 14 字符（mono 12px≈101px）、套餐胶囊最宽「free（待查资格）」≈125px、
+       2FA 两个按钮+看验证码≈125px、创建时间已改 MM-DD HH:MM:SS（14 字符≈104px）。
+       - 缩：email 330→244、time 170→128、note 140→104、status 100→68、token 100→76、id 72→64
+       - 放：plan 120→152（不再溢出）、source 90→104（不再截断）、password 120→126（14 位密码放得下）、
+             check 48→40、small 170→152、actions 148→144 */
     .accounts-table-v2 .col-check {
-      width: 48px; padding-left: 16px; padding-right: 8px;
+      width: 40px; padding-left: 16px; padding-right: 8px;
       text-align: left; vertical-align: middle;
     }
-    .accounts-table-v2 .col-id { width: 72px; }
-    .accounts-table-v2 .col-email { width: 330px; }
-    .accounts-table-v2 .col-source { width: 90px; }
-    .accounts-table-v2 .col-token { width: 100px; }
-    .accounts-table-v2 .col-password { width: 120px; }
-    .accounts-table-v2 .col-plan { width: 120px; }
-    .accounts-table-v2 .col-note { width: 140px; }
-    .accounts-table-v2 .col-small { width: 170px; }
-    .accounts-table-v2 .col-status { width: 100px; }
+    .accounts-table-v2 .col-id { width: 64px; }
+    .accounts-table-v2 .col-email { width: 244px; }
+    .accounts-table-v2 .col-source { width: 104px; }
+    .accounts-table-v2 .col-token { width: 76px; }
+    .accounts-table-v2 .col-password { width: 126px; }
+    .accounts-table-v2 .col-plan { width: 152px; }
+    .accounts-table-v2 .col-note { width: 104px; }
+    .accounts-table-v2 .col-small { width: 152px; }
+    .accounts-table-v2 .col-status { width: 68px; }
     .accounts-table-v2 .col-agent { width: 140px; }
-    .accounts-table-v2 .col-time { width: 170px; }
-    .accounts-table-v2 .col-actions { width: 148px; }
+    .accounts-table-v2 .col-time { width: 128px; }
+    .accounts-table-v2 .col-actions { width: 144px; }
     .accounts-table-v2 input[type="checkbox"] {
       width: 16px !important; height: 16px !important;
       min-width: 16px !important; min-height: 16px !important;
@@ -2012,9 +2150,349 @@
       .config-overview-v2-title { font-size: 24px; }
     }
 
+    /* ---- 代理分组下拉（注册页 / 账号页共用） ---- */
+    .wb-dd-btn { position: relative; display: inline-flex; align-items: stretch; }
+    .wb-dd-btn .wb-dd-caret {
+      min-width: 26px; padding-left: 6px; padding-right: 6px;
+      border-top-left-radius: 0; border-bottom-left-radius: 0;
+      margin-left: -1px;
+    }
+    .wb-dd-btn > .jobs-tb-btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+    .wb-dd-btn.is-open > .jobs-tb-btn { box-shadow: inset 0 0 0 1px rgba(37,99,235,.45); }
+    .wb-dd-menu {
+      position: absolute; z-index: 60; top: calc(100% + 4px); left: 0;
+      min-width: 210px; max-height: 320px; overflow-y: auto;
+      padding: 5px; border: 1px solid var(--line); border-radius: 8px;
+      background: #fff; box-shadow: 0 10px 26px rgba(16,24,40,.14);
+    }
+    .wb-dd-menu.hidden { display: none; }
+    .wb-dd-menu-title {
+      padding: 5px 9px 3px; font-size: 11px; color: var(--muted);
+    }
+    .wb-dd-item {
+      display: flex; align-items: center; gap: 8px; width: 100%;
+      padding: 6px 9px; border: 0; border-radius: 6px; background: transparent;
+      font-size: 13px; color: var(--text); text-align: left; cursor: pointer;
+    }
+    .wb-dd-item:hover { background: var(--soft); }
+    .wb-dd-item.is-active { background: #eef4ff; color: var(--blue); font-weight: 600; }
+    .wb-dd-item-mark {
+      flex: none; width: 14px; height: 14px; border: 1px solid #c7d2e0; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 10px; line-height: 1; color: #fff;
+    }
+    .wb-dd-btn[data-pg-multi] .wb-dd-item-mark { border-radius: 3px; }
+    .wb-dd-item.is-active .wb-dd-item-mark { border-color: var(--blue); background: var(--blue); }
+    .wb-dd-item-sub { margin-left: auto; font-size: 11px; color: var(--muted); }
+    .wb-dd-item.is-active .wb-dd-item-sub { color: var(--blue); }
+    .wb-dd-hint { align-self: center; font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+    /* ---- 套餐列：按代理分组的多状态标签 ---- */
+    .plan-tags { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+    .plan-tag {
+      display: inline-flex; align-items: center; gap: 3px;
+      padding: 1px 6px; border: 1px solid transparent; border-radius: 4px;
+      font-size: 11px; line-height: 18px; white-space: nowrap; cursor: default;
+    }
+    .plan-tag--promo { border-color: #b9e0c5; background: #eefaf1; color: var(--green); }
+    .plan-tag--free { border-color: #dbe3ee; background: #f4f6fa; color: var(--muted); }
+    .plan-tag--plus { border-color: #c7d7fb; background: #eef4ff; color: var(--blue); }
+    .plan-tag--fail { border-color: #f0c9c6; background: #fdf1f0; color: var(--red); }
+    .plan-tag-group { font-weight: 700; }
+    .plan-tag-more { font-size: 11px; color: var(--muted); }
+
+    /* ---- 套餐分组筛选（按代理分组-活动多选） ---- */
+    .pgf-menu { min-width: 268px; max-height: 360px; overflow-y: auto; }
+    .pgf-title { margin: 4px 0 2px; font-size: 11px; color: var(--muted); }
+    .pgf-item {
+      display: flex; align-items: center; gap: 8px; width: 100%;
+      padding: 5px 8px; border: 0; border-radius: 6px; background: transparent;
+      font-size: 13px; color: var(--text); text-align: left; cursor: pointer;
+    }
+    .pgf-item:hover { background: var(--soft); }
+    .pgf-item.is-active { background: #eef4ff; color: var(--blue); font-weight: 600; }
+    .pgf-box {
+      flex: none; width: 14px; height: 14px; border: 1px solid #c7d2e0; border-radius: 3px;
+      display: inline-flex; align-items: center; justify-content: center; font-size: 10px; color: #fff;
+    }
+    .pgf-item.is-active .pgf-box { border-color: var(--blue); background: var(--blue); }
+    .pgf-count { margin-left: auto; font-size: 11px; color: var(--muted); }
+    .pgf-empty { padding: 8px; font-size: 12px; color: var(--muted); }
+    .pgf-actions { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #ebeef5; }
+
+    /* ---- 配置页：代理分组管理 ---- */
+    .pgm-box { margin-top: 18px; margin-bottom: 4px; }
+    .pgm-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .pgm-head-main { min-width: 0; }
+    .pgm-title { font-weight: 700; color: var(--text); display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .pgm-head-meta { font-size: 11px; font-weight: 400; color: var(--muted); }
+    .pgm-sub { margin-top: 4px; font-size: 12px; color: var(--muted); line-height: 1.6; }
+    .pgm-group {
+      margin-top: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff;
+    }
+    .pgm-group-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .pgm-group-name {
+      padding: 2px 8px; border-radius: 5px; background: #eef4ff; color: var(--blue);
+      font-size: 12px; font-weight: 700;
+    }
+    .pgm-group-name.is-default { background: var(--soft); color: var(--muted); }
+    .pgm-group-count { font-size: 12px; color: var(--muted); }
+    .pgm-group-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .pgm-group textarea {
+      margin-top: 10px; width: 100%; min-height: 96px; padding: 8px 10px;
+      border: 1px solid var(--line); border-radius: 8px; background: var(--soft);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+      line-height: 1.6; color: var(--text); resize: vertical;
+    }
+    .pgm-group textarea:focus { outline: none; border-color: var(--blue); background: #fff; }
+    .pgm-parsed { margin-top: 8px; }
+    .pgm-parsed:empty { display: none; }
+    .pgm-add-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; margin-top: 12px; }
+    .pgm-add-row label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+    .pgm-add-row input, .pgm-add-row select {
+      padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; font-size: 13px; color: var(--text);
+    }
+    .pgm-add-row input { width: 150px; }
+    .pgm-smart {
+      margin-top: 12px; padding: 12px 14px; border: 1px solid var(--line);
+      border-radius: 10px; background: var(--soft);
+    }
+    .pgm-smart textarea {
+      margin-top: 8px; width: 100%; min-height: 84px; padding: 8px 10px;
+      border: 1px solid var(--line); border-radius: 8px; background: #fff;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+      line-height: 1.6; color: var(--text); resize: vertical;
+    }
+    /* 与下方「编辑弹框」里的同名规则保持一致：标签在上、控件在下 → flex-end 让按钮和 select 同底线 */
+    .pgm-smart-row { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+    .pgm-smart-row select { padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; font-size: 13px; }
+    .pgm-status { margin-top: 10px; font-size: 12px; color: var(--muted); white-space: pre-wrap; }
+    .pgm-status.is-ok { color: var(--green); }
+    .pgm-status.is-fail { color: var(--red); }
+    /* 内联组件：Menu（分组名）+ 虚拟滚动列表（分组下的代理），占据原「代理出口测试接口」字段位置。
+       列表高度固定，只看可视区，避免上百个代理把页面撑得过高。 */
+    .pgm-box-field { margin-top: 0; grid-column: 1 / -1; min-width: 0; }
+    .pgm-view { display: flex; gap: 10px; margin-top: 10px; align-items: stretch; }
+    .pgm-menu {
+      flex: 0 0 158px; display: flex; flex-direction: column; gap: 2px;
+      padding: 5px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft);
+      max-height: 230px; overflow-y: auto;
+    }
+    .pgm-menu-item {
+      display: flex; align-items: center; gap: 6px; padding: 5px 8px;
+      border: 0; border-radius: 6px; background: transparent; cursor: pointer;
+      font-size: 12px; color: var(--text); text-align: left; width: 100%;
+    }
+    .pgm-menu-item:hover { background: #eef4ff; }
+    .pgm-menu-item.is-active { background: #eef4ff; color: var(--blue); font-weight: 700; }
+    .pgm-menu-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pgm-menu-badge {
+      margin-left: 6px; padding: 0 5px; border-radius: 4px; background: var(--soft);
+      color: var(--muted); font-size: 10px; font-weight: 600;
+    }
+    .pgm-menu-item.is-active .pgm-menu-badge { background: #dbe7ff; color: var(--blue); }
+    .pgm-menu-count { font-size: 11px; color: var(--muted); }
+    .pgm-table-wrap {
+      flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 10px; background: #fff;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    .pgm-table-head {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--soft);
+      font-size: 12px; color: var(--muted);
+    }
+    .pgm-table-head-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pgm-head-ops { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+    .pgm-empty { padding: 20px 12px; text-align: center; font-size: 12px; color: var(--muted); }
+    /* 代理分组里的「小按钮」：设为默认 / 一键测试 / 清空 / 删除分组（工具条）与行内「测试」。
+       基础样式必须写全 —— 只写 .pgm-row .pgm-mini 的话，工具条上那几个按钮根本没有 CSS，
+       浏览器会把原生按钮外观（灰底、黑边、系统字体）直接露出来，和旁边的 .btn 完全不像一套。 */
+    .pgm-mini {
+      height: 28px; padding: 0 12px; box-sizing: border-box;
+      border: 1px solid #dcdfe6; border-radius: 6px; background: #fff; color: #606266;
+      font: inherit; font-size: 12px; font-weight: 400; line-height: 1; white-space: nowrap;
+      display: inline-flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: color .1s, border-color .1s, background .1s;
+    }
+    .pgm-mini:hover:not(:disabled) { color: var(--blue); border-color: #c6e2ff; background: #ecf5ff; }
+    .pgm-mini:active:not(:disabled) { background: #dce8ff; }
+    .pgm-mini:disabled { opacity: .55; cursor: not-allowed; }
+    .pgm-mini--danger { color: #e64545; border-color: #f3b7b7; }
+    .pgm-mini--danger:hover:not(:disabled) { color: #e64545; border-color: #f89898; background: #fff0f0; }
+    .pgm-mini--danger:active:not(:disabled) { background: #ffe0e0; }
+    /* 虚拟滚动容器：外层定高滚动，内层撑出总高度，只有窗口内的行会被渲染 */
+    .pgm-vlist { overflow-y: auto; overflow-x: hidden; background: #fff; }
+    .pgm-vinner { position: relative; width: 100%; }
+    .pgm-vrows { position: absolute; top: 0; left: 0; right: 0; will-change: transform; }
+    /* 行固定 26px 高（与 JS 的 PGM_ROW_H 一致），保证虚拟滚动定位准确 */
+    .pgm-row {
+      display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px;
+      border-bottom: 1px solid #f0f2f7; font-size: 12px; box-sizing: border-box;
+    }
+    .pgm-row:hover { background: #f8fafd; }
+    /* 代理占满剩余宽度、结果列按内容收缩（上限 46%）：没测试时结果只有"未测试"三个字，
+       省下的宽度全给代理，否则长 URL 会被截断在无意义的前半段。 */
+    .pgm-row-proxy {
+      flex: 1 1 auto; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help;
+    }
+    .pgm-row-result {
+      flex: 0 1 auto; min-width: 0; max-width: 46%; font-size: 11px; color: var(--muted);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help;
+    }
+    .pgm-row-result.is-ok { color: var(--green); }
+    .pgm-row-result.is-fail { color: var(--red); }
+    .pgm-row-op { flex: none; }
+    .pgm-row .pgm-mini {
+      height: 22px; padding: 0 8px; border: 1px solid var(--line); border-radius: 5px;
+      background: #fff; color: #606266; font-size: 11px; line-height: 1; cursor: pointer;
+    }
+    .pgm-row .pgm-mini:hover { border-color: var(--blue); color: var(--blue); }
+    .pgm-row .pgm-mini:disabled { opacity: .55; cursor: not-allowed; }
+    .pgm-add-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; margin-top: 12px; }
+    .pgm-add-row label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+    .pgm-add-row input, .pgm-add-row select {
+      padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; font-size: 13px; color: var(--text);
+    }
+    .pgm-add-row input { width: 150px; }
+    .pgm-smart {
+      margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line);
+      border-radius: 10px; background: var(--soft);
+    }
+    .pgm-smart textarea {
+      margin-top: 8px; width: 100%; min-height: 72px; padding: 8px 10px;
+      border: 1px solid var(--line); border-radius: 8px; background: #fff;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+      line-height: 1.6; color: var(--text); resize: vertical;
+    }
+    /* 「协议」标签是两行（文字 + select），按钮要对齐到 **select 的边**而不是整个标签块：
+       align-items:center 会让 38px 的按钮浮到 select 上方 14px，flex-end 让两者同底线。
+       与内联卡片 .pgm-add-row 的处理方式保持一致（标签在上、控件在下 → 一律 flex-end）。 */
+    .pgm-smart-row { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+    .pgm-smart-row select { padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; font-size: 13px; }
+    .pgm-status { margin-top: 8px; font-size: 12px; color: var(--muted); white-space: pre-wrap; }
+    .pgm-status:empty { display: none; }
+    .pgm-status.is-ok { color: var(--green); }
+    .pgm-status.is-fail { color: var(--red); }
+    /* ---- 编辑弹框布局：左栏分组 + 右栏「列表/原文」二选一 + 折叠的智能识别 ---- */
+    .pgm-edit-layout { display: flex; gap: 14px; flex: 1; min-height: 0; }
+    .pgm-edit-side { flex: 0 0 200px; display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
+    /* 左栏「分组」标题块的高度 = 右栏「工具条(28) + gap(8) + tabs(33)」= 69px。
+       这样左右两栏的内容盒（左：分组列表盒 / 右：列表盒·文本框）上边缘才齐平 —— 以文本框为基线。
+       注意：与 .pgm-edit-group-head / .pgm-tabs 的实际高度耦合，改那两处要同步改这个数。 */
+    .pgm-side-title {
+      flex: none; min-height: 69px; display: flex; align-items: center; gap: 6px;
+      font-size: 12px; font-weight: 600; color: var(--muted);
+    }
+    .pgm-side-title span { font-weight: 400; }
+    .pgm-menu-edit { flex: 1 1 auto; min-height: 60px; max-height: none; }
+    /* 输入框+按钮必须等高：全局 `input { min-height:38px; margin-top:6px }` 会漏进这一行，
+       6px 的 margin-top 把 flex 行撑到 44px，而 align-items 默认 stretch 又把按钮拉到 44px 并
+       整体上移 6px —— 症状就是「按钮比文本框高出一截」。这里显式清掉 margin-top、锁死 38px。 */
+    .pgm-add-group { flex: none; display: flex; gap: 6px; align-items: center; }
+    .pgm-add-group input {
+      flex: 1; min-width: 0; min-height: 38px; margin-top: 0;
+      padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; font-size: 12px;
+    }
+    .pgm-add-group .btn { flex: none; min-height: 38px; padding: 0 12px; font-size: 12px; }
+    .pgm-edit-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+    /* 工具条必须始终只有一行：左栏盒子上边缘的对齐依赖它的高度（见 .pgm-side-title 的 69px 注释）。
+       分组名过长时截断成省略号，而不是把按钮挤到第二行 —— 换行会让整个右栏下移，左右两个盒子
+       上边缘就错开了（这是「对齐」最容易被长分组名打破的地方）。 */
+    .pgm-edit-group-head {
+      flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: nowrap;
+    }
+    .pgm-edit-group-head .pgm-group-name {
+      flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .pgm-edit-group-head .pgm-group-count { flex: none; }
+    .pgm-edit-group-head .pgm-group-actions { flex: none; flex-wrap: nowrap; }
+    /* 分隔线两侧留白由 .pgm-group-actions 的 gap 统一给，这里不要再加 margin，否则间距不等 */
+    .pgm-ops-sep { flex: none; width: 1px; height: 16px; margin: 0; background: var(--line); }
+
+    /* 视图切换：代理列表（带「测试」按钮）/ 编辑原文。两者都是同一份数据，不再上下各渲染一遍。 */
+    .pgm-tabs {
+      flex: none; align-self: flex-start; display: flex; gap: 2px; padding: 3px;
+      border: 1px solid var(--line); border-radius: 8px; background: var(--soft);
+    }
+    .pgm-tab {
+      padding: 4px 12px; border: 0; border-radius: 6px; background: transparent; cursor: pointer;
+      font-size: 12px; font-family: inherit; color: var(--muted);
+    }
+    .pgm-tab:hover { color: var(--text); }
+    .pgm-tab.is-active { background: #fff; color: var(--blue); font-weight: 700; box-shadow: 0 1px 3px rgba(15,23,42,.08); }
+    .pgm-tab span { margin-left: 5px; font-weight: 400; color: var(--muted); }
+    .pgm-tab span:empty { display: none; }
+
+    .pgm-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .pgm-pane[data-pgm-pane="list"] {
+      border: 1px solid var(--line); border-radius: 10px; background: #fff; overflow: hidden;
+    }
+    .pgm-pane > .pgm-parsed { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 0; }
+    .pgm-pane .pgm-vlist { flex: 1; min-height: 0; }
+    .pgm-pane .pgm-empty { margin: auto; }
+    .pgm-pane[data-pgm-pane="text"] > textarea {
+      flex: 1; min-height: 0; width: 100%; margin: 0; padding: 10px 12px; resize: none;
+      border: 1px solid var(--line); border-radius: 10px; background: #fff;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+      line-height: 1.6; color: var(--text);
+    }
+    .pgm-pane[data-pgm-pane="text"] > textarea:focus { outline: none; border-color: var(--blue); }
+
+    /* 智能识别添加：默认折叠，展开时从下方挤压列表（列表自身滚动区随之变矮） */
+    .pgm-smart { flex: none; margin-top: 0; padding: 0; overflow: hidden; }
+    .pgm-smart > summary {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 9px 12px;
+      /* 36 + 上下 1px 边框 = 38，和左栏「新建分组」那一行的 38px 等高 ——
+         这样左右两栏的内容盒上下一共四条边完全齐平（差 1px 肉眼看不出来，但没必要留） */
+      min-height: 36px;
+      cursor: pointer; user-select: none; list-style: none; font-size: 12px; color: var(--text);
+    }
+    .pgm-smart > summary::-webkit-details-marker { display: none; }
+    .pgm-smart > summary::before {
+      content: ''; flex: none; width: 0; height: 0; margin-right: 2px;
+      border-left: 5px solid var(--muted); border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+      transition: transform .15s ease;
+    }
+    .pgm-smart[open] > summary::before { transform: rotate(90deg); }
+    .pgm-smart > summary:hover { background: #eef4ff; }
+    .pgm-smart > summary .pgm-smart-title { font-weight: 700; }
+    .pgm-smart > textarea {
+      display: block; width: calc(100% - 24px); min-height: 64px; margin: 0 12px 8px; padding: 8px 10px;
+      border: 1px solid var(--line); border-radius: 8px; background: #fff;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+      line-height: 1.6; color: var(--text); resize: vertical;
+    }
+    .pgm-smart > .pgm-smart-row { padding: 0 12px 10px; margin-top: 0; }
+    .pgm-smart > .pgm-status { padding: 0 12px; margin: 0; }
+    .pgm-smart > .pgm-status:not(:empty) { padding-bottom: 10px; }
+    .pgm-smart-hint { font-size: 12px; color: var(--muted); }
+
+    /* 底栏：状态在左、按钮在右，固定在弹框底部（不随内容滚动） */
+    .pgm-edit-foot {
+      flex: none; display: flex; align-items: center; gap: 12px;
+      margin-top: 10px; padding: 10px 0 12px; border-top: 1px solid var(--line);
+    }
+    .pgm-edit-foot .pgm-status { flex: 1; min-width: 0; margin: 0; }
+    .pgm-edit-foot-ops { flex: none; margin-left: auto; display: inline-flex; gap: 8px; }
+
+    @media (max-width: 760px) {
+      .pgm-view, .pgm-edit-layout { flex-direction: column; }
+      .pgm-menu, .pgm-edit-side { flex: none; width: 100%; }
+      .pgm-menu { max-height: 200px; flex-direction: row; flex-wrap: wrap; }
+      #pgmEditPanel:not(.hidden) { width: calc(100vw - 24px); height: calc(100vh - 24px); padding: 12px 12px 0; }
+      .pgm-edit-layout { gap: 10px; }
+      .pgm-menu-edit { flex: none; min-height: 0; max-height: 96px; }
+      .pgm-side-title { display: none; }
+    }
+
   </style>
 </head>
 <body>
+<script>
+  // 侧边栏收起状态必须在首屏渲染前生效，否则会看到一次 232→64 的展开动画。
+  try { if (localStorage.getItem('gpt_console_sidebar_collapsed') === '1') document.body.classList.add('sidebar-collapsed'); } catch (e) {}
+</script>
 <aside class="app-sidebar" aria-label="主导航">
   <div class="sidebar-brand">
     <svg class="sidebar-brand-icon" viewBox="0 0 44 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -2028,33 +2506,38 @@
       <path d="M22 13L30.928 18.25V29.75L22 35L13.072 29.75V18.25L22 13Z" fill="white" fill-opacity="0.92"/>
     </svg>
     <span class="sidebar-brand-title">GPT Registrator</span>
+    <button type="button" class="sidebar-collapse-btn" id="btnSidebarCollapse" title="收起侧边栏" aria-label="收起/展开侧边栏" aria-expanded="true">
+      <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="15 18 9 12 15 6"/>
+      </svg>
+    </button>
   </div>
   <nav class="sidebar-nav">
-    <button type="button" data-tab="register" class="sidebar-item active">
+    <button type="button" data-tab="register" class="sidebar-item active" title="注册">
       <svg class="sidebar-item-icon" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M12 5v14M5 12h14"/>
       </svg>
       <span class="sidebar-item-label">注册</span>
     </button>
-    <button type="button" data-tab="accounts" class="sidebar-item">
+    <button type="button" data-tab="accounts" class="sidebar-item" title="账号">
       <svg class="sidebar-item-icon" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
       </svg>
       <span class="sidebar-item-label">账号</span>
     </button>
-    <button type="button" data-tab="codex" class="sidebar-item">
+    <button type="button" data-tab="codex" class="sidebar-item" title="Codex 授权">
       <svg class="sidebar-item-icon" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
       </svg>
       <span class="sidebar-item-label">Codex 授权</span>
     </button>
-    <button type="button" data-tab="outlook" class="sidebar-item">
+    <button type="button" data-tab="outlook" class="sidebar-item" title="邮箱池">
       <svg class="sidebar-item-icon" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><path d="M22 6l-10 7L2 6"/>
       </svg>
       <span class="sidebar-item-label">邮箱池</span>
     </button>
-    <button type="button" data-tab="config" class="sidebar-item">
+    <button type="button" data-tab="config" class="sidebar-item" title="配置">
       <svg class="sidebar-item-icon" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
       </svg>
@@ -2062,19 +2545,19 @@
     </button>
   </nav>
   <div class="sidebar-footer">
-    <a href="https://t.me/+gu_cvEKq_vcyZWRl" target="_blank" rel="noopener noreferrer">
+    <a href="https://t.me/+gu_cvEKq_vcyZWRl" target="_blank" rel="noopener noreferrer" title="TG 交流群">
       <svg class="sidebar-footer-icon" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/>
       </svg>
       <span>TG 交流群</span>
     </a>
-    <a href="https://github.com/myfanhua/turb-gpt-free-register" target="_blank" rel="noopener noreferrer">
+    <a href="https://github.com/myfanhua/turb-gpt-free-register" target="_blank" rel="noopener noreferrer" title="Github 仓库">
       <svg class="sidebar-footer-icon" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
       </svg>
       <span>Github 仓库</span>
     </a>
-    <a href="/?ui=legacy" title="切换到历史版顶部导航 UI">
+    <a href="/?ui=legacy" title="切换旧 UI（历史版顶部导航）" data-sidebar-tooltip="切换旧 UI">
       <svg class="sidebar-footer-icon" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M3 6h18M3 12h18M3 18h18"/>
       </svg>
@@ -2173,7 +2656,11 @@
             </button>
           </span>
         </label>
-        <button type="button" class="jobs-tb-btn jobs-tb-btn--primary" id="btnStartV2">开始注册</button>
+        <div class="wb-dd-btn" id="regProxyGroupDd" data-pg-key="reg" data-pg-single>
+          <button type="button" class="jobs-tb-btn jobs-tb-btn--primary" id="btnStartV2">开始注册</button>
+          <button type="button" class="jobs-tb-btn jobs-tb-btn--primary wb-dd-caret" id="btnRegGroupToggle" data-pg-toggle="regProxyGroupMenu" title="选择本次注册使用的代理分组">▾</button>
+          <div class="wb-dd-menu hidden" id="regProxyGroupMenu" role="menu"></div>
+        </div>
       </div>
       <div id="regWarnV2"></div>
       <div class="jobs-table-v2-wrap">
@@ -2228,6 +2715,10 @@
           <button type="button" class="acc-v2-toggle" id="showPlusAccountsOnlyV2" aria-pressed="false" title="只查询/显示已开通 Plus 的账号">已开通Plus</button>
           <button type="button" class="acc-v2-toggle" id="showPlusTrialAccountsOnlyV2" aria-pressed="false" title="只查询/显示当前为 free 且可试用 Plus 的账号">可试用Plus</button>
           <button type="button" class="acc-v2-toggle" id="showFreeAccountsOnlyV2" aria-pressed="false" title="只查询/显示已明确不能试用 Plus 的 free 账号；资格未知的账号不包含">free不可试用Plus</button>
+          <div class="acc-v2-date-select" id="planGroupFilterWrapV2">
+            <button type="button" class="acc-v2-date-select-btn" id="btnPlanGroupFilterV2" title="按「代理分组-套餐活动」筛选账号；可多选，例如 JP-free、PH-1月半价">🏷 套餐分组</button>
+            <div class="acc-v2-date-select-menu pgf-menu" id="planGroupFilterMenuV2"></div>
+          </div>
           <label class="acc-v2-inline" title="按账号状态筛选账号">
             <select id="codexStatusFilterV2">
               <option value="">全部状态</option>
@@ -2263,8 +2754,16 @@
       <div class="jobs-toolbar-v2" id="accountsToolbarV2">
         <div class="acc-v2-btn-group">
           <span class="acc-v2-btn-group-title">套餐/提链</span>
-          <button type="button" class="jobs-tb-btn jobs-tb-btn--primary" id="btnCheckSelectedLiveV2" onclick="checkSelectedLive()" title="重新登录选中账号；成功且未封号则标记正常，并刷新最新 AT/accessToken">查活</button>
-          <button type="button" class="jobs-tb-btn jobs-tb-btn--primary" id="btnCheckSelectedPlansV2" disabled title="查询选中账号当前套餐；free 账号会检查 Plus 试用资格">查套餐</button>
+          <div class="wb-dd-btn" data-pg-key="live" data-pg-single>
+            <button type="button" class="jobs-tb-btn jobs-tb-btn--primary" id="btnCheckSelectedLiveV2" onclick="checkSelectedLive()" title="重新登录选中账号；成功且未封号则标记正常，并刷新最新 AT/accessToken">查活</button>
+            <button type="button" class="jobs-tb-btn jobs-tb-btn--primary wb-dd-caret" data-pg-toggle="liveProxyGroupMenu" title="选择本次查活使用的代理分组">▾</button>
+            <div class="wb-dd-menu hidden" id="liveProxyGroupMenu" role="menu"></div>
+          </div>
+          <div class="wb-dd-btn" data-pg-key="plan" data-pg-multi>
+            <button type="button" class="jobs-tb-btn jobs-tb-btn--primary" id="btnCheckSelectedPlansV2" disabled title="查询选中账号当前套餐；free 账号会检查 Plus 试用资格">查套餐</button>
+            <button type="button" class="jobs-tb-btn jobs-tb-btn--primary wb-dd-caret" id="btnPlanGroupToggle" data-pg-toggle="planProxyGroupMenu" title="选择套餐查询使用的代理分组（可多选，每个分组各查一次）">▾</button>
+            <div class="wb-dd-menu hidden" id="planProxyGroupMenu" role="menu"></div>
+          </div>
           <button type="button" class="jobs-tb-btn jobs-tb-btn--good" id="btnExtractSelectedLinksV2" disabled title="给选中的 free(可Plus试用) 账号批量提链，类型按配置 PIX/UPI/KAKAO_PAY/IDEAL">提链</button>
         </div>
         <div class="acc-v2-btn-group">
@@ -2275,8 +2774,16 @@
         </div>
         <div class="acc-v2-btn-group">
           <span class="acc-v2-btn-group-title">批量</span>
-          <button type="button" class="jobs-tb-btn jobs-tb-btn--primary" id="btnSetupSelectedTotpV2" disabled title="给选中的账号批量开启 2FA，并在完成后写回 TOTP 密钥">批量开2FA</button>
-          <button type="button" class="jobs-tb-btn jobs-tb-btn--primary" id="btnChangeSelectedEmailsV2" disabled title="为选中的账号从指定邮箱来源领取新邮箱并换绑">批量换邮箱</button>
+          <div class="wb-dd-btn" data-pg-key="totp" data-pg-single>
+            <button type="button" class="jobs-tb-btn jobs-tb-btn--primary" id="btnSetupSelectedTotpV2" disabled title="给选中的账号批量开启 2FA，并在完成后写回 TOTP 密钥">批量开2FA</button>
+            <button type="button" class="jobs-tb-btn jobs-tb-btn--primary wb-dd-caret" data-pg-toggle="totpProxyGroupMenu" title="选择本次 2FA 设置使用的代理分组">▾</button>
+            <div class="wb-dd-menu hidden" id="totpProxyGroupMenu" role="menu"></div>
+          </div>
+          <div class="wb-dd-btn" data-pg-key="email" data-pg-single>
+            <button type="button" class="jobs-tb-btn jobs-tb-btn--primary" id="btnChangeSelectedEmailsV2" disabled title="为选中的账号从指定邮箱来源领取新邮箱并换绑">批量换邮箱</button>
+            <button type="button" class="jobs-tb-btn jobs-tb-btn--primary wb-dd-caret" data-pg-toggle="emailProxyGroupMenu" title="选择本次换绑使用的代理分组">▾</button>
+            <div class="wb-dd-menu hidden" id="emailProxyGroupMenu" role="menu"></div>
+          </div>
           <button type="button" class="jobs-tb-btn jobs-tb-btn--good" id="btnNoteSelectedAccountsV2" disabled title="给选中的账号统一设置备注，留空可清空备注">备注</button>
           <button type="button" class="jobs-tb-btn jobs-tb-btn--good" id="btnCopySelectedLinesV2" disabled title="复制选中账号的完整整行，每个账号一行">复制行</button>
           <button type="button" class="jobs-tb-btn jobs-tb-btn--good" id="btnCopySelectedTokensV2" disabled title="复制选中账号的 Token，每个账号一行">复制Token</button>
@@ -2338,6 +2845,12 @@
         <button class="btn" id="btnCloseTotpLog" style="float:right;min-height:28px;">关闭</button>
       </h3>
       <div class="log" id="totpLogContent">加载中…</div>
+    </div>
+    <div class="body hidden" id="planLogPanel">
+      <h3>查套餐日志：<span id="planLogEmail" style="font-size:13px;font-weight:400;color:var(--muted);"></span>
+        <button class="btn" id="btnClosePlanLog" style="float:right;min-height:28px;">关闭</button>
+      </h3>
+      <div class="log" id="planLogContent">加载中…</div>
     </div>
     <div class="body hidden" id="emailChangeLogPanel">
       <h3>换绑日志：<span id="emailChangeLogAccount" style="font-size:13px;font-weight:400;color:var(--muted);"></span>
@@ -2587,7 +3100,7 @@
         <option value="cloudflare_domain">Cloudflare 域名邮箱</option><option value="cloudflare">Cloudflare 临时邮箱</option>
         <option value="gptmail">GPTMail</option><option value="mailnest">MailNest</option><option value="cloudmail">CloudMail</option><option value="remail">Remail</option>
       </select></label>
-      <div class="banner warn">换绑成功后当前 access_token 会失效并被清空，系统会立即使用新邮箱自动查活并刷新 AT。原邮箱会保留在账号记录中。</div>
+      <div class="banner warn">换绑成功后当前 access_token 会失效并被清空，系统会立即使用新邮箱自动查活并刷新 AT。原邮箱会保留在账号记录中，并按换绑前的来源放回邮箱池（Outlook / 通用 API / 通用 IMAP / 域名邮箱复位为可用；临时邮箱来源不进本地池）。</div>
     </div>
     <div class="outlook-import-foot"><button type="button" class="jobs-tb-btn" id="btnCancelEmailChangeV2">取消</button><button type="button" class="jobs-tb-btn jobs-tb-btn--primary" id="btnSubmitEmailChangeV2">开始换绑</button></div>
   </div>
@@ -2595,11 +3108,164 @@
 <div class="body hidden" id="logPanel">
   <h3>任务 #<span id="logJobId"></span> 日志 <button class="btn" id="btnCloseLog" style="float:right;min-height:28px;">关闭</button></h3>
   <div class="log" id="logContent">加载中…</div>
+  <div id="logManualLiveBar" class="hidden">
+    <span class="log-manual-live-hint" id="logManualLiveHint"></span>
+    <button type="button" class="jobs-tb-btn jobs-tb-btn--primary" id="btnManualLiveCheck">手动查活</button>
+  </div>
 </div>
 <div id="qrPanel" class="body hidden">
   <h3>支付二维码 <button class="btn" onclick="closeQrModal()">关闭</button></h3>
   <img id="qrImage" alt="支付二维码">
   <a id="qrOpenLink" class="qr-link" href="#" target="_blank" rel="noopener noreferrer"></a>
+</div>
+<div id="pgmEditPanel" class="body hidden">
+  <div class="pgm-dlg-head">
+    <h3>代理分组编辑
+      <span class="pgm-dlg-meta" id="pgmDlgMeta"></span>
+      <button class="btn" id="btnClosePgmEdit" style="min-height:28px;">关闭</button>
+    </h3>
+    <p class="pgm-edit-tip" title="「默认分组」= 没特别指定分组时的全局代理池，任何分组都能「设为默认」，原默认分组自动降级为普通分组（可删除）；默认分组本身只能清空、不能删除。">「默认分组」= 未指定分组时的全局代理池；改完点「保存分组」写入配置并热加载，无需重启。</p>
+  </div>
+
+  <div class="pgm-edit-layout">
+    <div class="pgm-edit-side">
+      <div class="pgm-side-title">分组 <span id="pgmSideCount"></span></div>
+      <div class="pgm-menu pgm-menu-edit" id="pgmEditMenuV2"></div>
+      <div class="pgm-add-group">
+        <input id="pgmNewGroupNameV2" placeholder="新建分组名，如 KN" spellcheck="false" autocomplete="off">
+        <button type="button" class="btn" id="btnPgmAddGroup">新建</button>
+      </div>
+    </div>
+
+    <div class="pgm-edit-main">
+      <div class="pgm-edit-group-head">
+        <span class="pgm-group-name" id="pgmEditGroupName">-</span>
+        <span class="pgm-group-count" id="pgmEditGroupCount"></span>
+        <div class="pgm-group-actions">
+          <button type="button" class="pgm-mini" data-pgm-set-default-edit="1">设为默认</button>
+          <button type="button" class="pgm-mini" data-pgm-test-all-edit="1">一键测试</button>
+          <span class="pgm-ops-sep" aria-hidden="true"></span>
+          <button type="button" class="pgm-mini pgm-mini--danger" data-pgm-clear-edit="1">清空</button>
+          <button type="button" class="pgm-mini pgm-mini--danger" data-pgm-remove-edit="1">删除分组</button>
+        </div>
+      </div>
+
+      <div class="pgm-tabs" role="tablist">
+        <button type="button" class="pgm-tab is-active" data-pgm-tab="list" role="tab" aria-selected="true">代理列表<span id="pgmTabCountV2"></span></button>
+        <button type="button" class="pgm-tab" data-pgm-tab="text" role="tab" aria-selected="false">编辑原文</button>
+      </div>
+
+      <div class="pgm-pane" data-pgm-pane="list">
+        <div class="pgm-parsed" id="pgmEditParsedV2"></div>
+      </div>
+      <div class="pgm-pane hidden" data-pgm-pane="text">
+        <textarea id="pgmGroupTextV2" data-pgm-text="" spellcheck="false" placeholder="每行一个代理，例如 192.168.0.1:8000:用户名:密码"></textarea>
+      </div>
+
+      <details class="pgm-smart" id="pgmSmartBoxV2">
+        <summary>
+          <span class="pgm-smart-title">智能识别添加</span>
+          <span class="hint">支持 <span class="mono">host:port:用户:密码</span>、<span class="mono">用户:密码@host:port</span>、<span class="mono">host:port</span></span>
+        </summary>
+        <textarea id="pgmSmartRawV2" spellcheck="false" placeholder="192.168.0.1:8000:用户名:密码&#10;用户名:密码@192.168.0.1:8000"></textarea>
+        <div class="pgm-smart-row">
+          <label>协议
+            <select id="pgmSmartSchemeV2">
+              <option value="http">HTTP</option>
+              <option value="socks5">SOCKS5</option>
+            </select>
+          </label>
+          <button type="button" class="btn primary" id="btnPgmParseAdd">解析并添加</button>
+          <button type="button" class="btn" id="btnPgmParsePreview">仅解析预览</button>
+          <span class="pgm-smart-hint">解析后加到左上角选中的分组</span>
+        </div>
+        <div class="pgm-status" id="pgmSmartStatusV2"></div>
+      </details>
+    </div>
+  </div>
+
+  <div class="pgm-edit-foot">
+    <div class="pgm-status" id="pgmEditStatusV2"></div>
+    <div class="pgm-edit-foot-ops">
+      <button type="button" class="btn" id="btnCancelPgmEdit">取消</button>
+      <button type="button" class="btn primary" id="btnPgmSave">保存分组</button>
+    </div>
+  </div>
+</div>
+<div id="manualOtpPanel" class="body hidden">
+  <h3>需要手动输入验证码
+    <span class="manual-otp-badge hidden" id="manualOtpQueueBadge"></span>
+    <button class="btn" id="btnManualOtpNotify" style="min-height:28px;">开启浏览器提醒</button>
+    <button class="btn" id="btnCloseManualOtp" style="min-height:28px;">稍后处理</button>
+  </h3>
+  <div class="manual-otp-row"><span class="k">用途</span><span class="v" id="manualOtpPurpose">-</span></div>
+  <div class="manual-otp-row"><span class="k">邮箱</span><span class="v" id="manualOtpEmail">-</span>
+    <button class="btn" id="btnCopyManualOtpEmail" style="min-height:26px;margin-left:auto;">复制</button></div>
+  <div class="manual-otp-row hidden" id="manualOtpUrlRow"><span class="k">取码地址</span>
+    <span class="v"><a id="manualOtpUrl" href="#" target="_blank" rel="noopener noreferrer"></a></span>
+    <button class="btn" id="btnOpenManualOtpUrl" style="min-height:26px;margin-left:auto;">打开</button>
+    <button class="btn" id="btnCopyManualOtpUrl" style="min-height:26px;">复制</button></div>
+  <div class="manual-otp-row"><span class="k">剩余时间</span><span class="v" id="manualOtpCountdown">-</span></div>
+  <div class="manual-otp-row hidden" id="manualOtpErrorRow"><span class="k">自动取码</span><span class="v" id="manualOtpAutoError">-</span></div>
+  <div class="manual-otp-code-row">
+    <input id="manualOtpCodeInput" maxlength="8" inputmode="numeric" autocomplete="one-time-code" placeholder="粘贴 6 位验证码">
+    <button class="btn primary" id="btnManualOtpSubmit">提交并继续</button>
+  </div>
+  <div class="manual-otp-code-row">
+    <button class="btn" id="btnManualOtpCancel">取消输入（让本次任务失败）</button>
+    <button class="btn" id="btnManualOtpOpenSource" style="margin-left:auto;">查看任务日志</button>
+  </div>
+  <div class="manual-otp-note" id="manualOtpNote">
+    自动取码没有检测到新验证码。请到邮箱或上面的取码地址查看后填入，提交后流程会自动继续；
+    你也可以先在邮箱页面点「重新发送验证码」再查看。
+  </div>
+</div>
+<div id="manualInterventionPanel" class="body hidden">
+  <h3>
+    <span class="manual-otp-badge warn" id="manualInterventionBadge">风控</span>
+    <span id="manualInterventionTitle">需要你手动完成 Cloudflare 验证</span>
+    <button class="btn" id="btnCloseManualIntervention" style="min-height:28px;">稍后处理</button>
+  </h3>
+  <div class="mi-body">
+    <div class="manual-otp-row"><span class="k">类型</span><span class="v" id="manualInterventionKind">-</span></div>
+    <div class="manual-otp-row"><span class="k">任务</span><span class="v" id="manualInterventionTask">-</span></div>
+    <div class="manual-otp-row"><span class="k">邮箱</span><span class="v" id="manualInterventionEmail">-</span>
+      <button class="btn" id="btnCopyManualInterventionEmail" style="min-height:26px;margin-left:auto;">复制</button></div>
+    <div class="manual-otp-row hidden" id="manualInterventionUrlRow"><span class="k">当前页面</span>
+      <span class="v" id="manualInterventionUrl">-</span>
+      <button class="btn" id="btnCopyManualInterventionUrl" style="min-height:26px;margin-left:auto;">复制</button></div>
+    <div class="manual-otp-row"><span class="k">剩余时间</span><span class="v" id="manualInterventionCountdown">-</span></div>
+    <div class="mi-status" id="manualInterventionStatus">-</div>
+    <div class="mi-hint" id="manualInterventionHint"></div>
+  </div>
+  <div class="mi-foot">
+    <button class="btn primary" id="btnManualInterventionAck">我已处理完成（立即复检）</button>
+    <button class="btn" id="btnManualInterventionLog">查看任务日志</button>
+    <button class="btn" id="btnManualInterventionNotify" style="min-height:28px;">开启浏览器提醒</button>
+    <span class="spacer"></span>
+    <button class="btn" id="btnManualInterventionCancel">取消本次任务</button>
+  </div>
+</div>
+<div id="clientErrorPanel" class="body hidden">
+  <h3>
+    <span class="err-dialog-badge" id="clientErrorBadge">!</span>
+    <span class="err-dialog-title" id="clientErrorTitle">操作未成功</span>
+    <button class="btn" id="btnCloseClientError" style="min-height:28px;">关闭</button>
+  </h3>
+  <div class="err-dialog-body">
+    <div class="err-dialog-msg" id="clientErrorMsg"></div>
+    <div class="err-dialog-status" id="clientErrorStatus"></div>
+    <details class="err-dialog-raw hidden" id="clientErrorRawWrap">
+      <summary>原始错误（点开查看，反馈问题时请附上）</summary>
+      <div class="log" id="clientErrorRaw"></div>
+    </details>
+  </div>
+  <div class="err-dialog-actions">
+    <button class="btn hidden" id="btnClientErrorRecheck">重新检测本地客户端</button>
+    <span class="spacer"></span>
+    <button class="btn" id="btnCopyClientError">复制详情</button>
+    <button class="btn primary" id="btnClientErrorOk">我知道了</button>
+  </div>
 </div>
 
 <script>
@@ -2783,6 +3449,13 @@ function formatDateTime(v) {
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
+// 注册任务列表的时间列要窄：去掉年份只留 MM-DD HH:MM:SS，完整时间放 title 里。
+function formatJobTime(v) {
+  const full = formatDateTime(v);
+  if (!full || full === '-') return '-';
+  const m = full.match(/^\d{4}-(\d{2}-\d{2} \d{2}:\d{2}:\d{2})/);
+  return m ? m[1] : full;
+}
 function formatTraffic(t) {
   if (!t || !t.available) return '-';
   const n = (v) => Number.isFinite(Number(v)) ? Math.max(0, Number(v)) : 0;
@@ -2832,7 +3505,9 @@ function activateTab(tab, persist=true) {
   $$('nav button').forEach(x => x.classList.toggle('active', x.dataset.tab === tab));
   allowed.forEach(t => $('#tab-'+t).classList.toggle('hidden', t !== tab));
   if (persist) localStorage.setItem('gpt_console_active_tab', tab);
-  if (tab === 'accounts') loadAccounts();
+  // 注册/账号页都要用代理分组下拉，进入时同步一次分组列表与本地缓存的选择。
+  if (tab === 'register' || tab === 'accounts') loadProxyGroups();
+  if (tab === 'accounts') { loadAccounts(); loadPlanGroupOptions(); }
   if (tab === 'codex') loadCodex();
   if (tab === 'outlook') loadOutlook();
   if (tab === 'config') loadConfig();
@@ -2872,14 +3547,20 @@ async function startRegistrationFromInputs(countEl, workersEl, startBtn) {
   };
   const b2 = $('#btnStartV2'); if (b2) b2.disabled = true;
   try {
-    const r = await api('/api/jobs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({count, workers}) });
-    const warnHtml = r.warning ? `<div class="banner warn">${esc(r.warning)}（本次并发 ${r.workers || workers}）</div>` : `<div class="banner info">已提交 ${r.submitted} 个任务，本次并发 ${r.workers || workers}</div>`;
+    const fields = proxyGroupRequestFields('reg');
+    const r = await api('/api/jobs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({count, workers, ...fields}) });
+    const groupTip = fields.proxy_group ? `，代理分组 ${esc(fields.proxy_group)}` : '';
+    const warnHtml = r.warning
+      ? `<div class="banner warn">${esc(r.warning)}（本次并发 ${r.workers || workers}${groupTip}）</div>`
+      : `<div class="banner info">已提交 ${r.submitted} 个任务，本次并发 ${r.workers || workers}${groupTip}</div>`;
     const warnEl = $('#regWarnV2'); if (warnEl) warnEl.innerHTML = warnHtml;
     const c2 = $('#regCountV2'); if (c2) c2.value = count;
     const w2 = $('#regWorkersV2'); if (w2) w2.value = workers;
     refreshJobs();
   } catch(e) {
-    const warnEl = $('#regWarnV2'); if (warnEl) warnEl.innerHTML = `<div class="banner warn">${esc(e.message)}</div>`;
+    // 错误里可能是多行提示（如"请先启动比特浏览器/RoxyBrowser 客户端"）：行内只留一行摘要，
+    // 完整内容（含英文原始错误）走弹框，避免把警告条撑成一大段。
+    showRegSubmitError(e.message);
   }
   finally { setTimeout(restoreBtn, 3000); }
 }
@@ -2926,6 +3607,8 @@ function bindJobsBodyEvents(bodyEl) {
     if (stopBtn) { stopJob(parseInt(stopBtn.dataset.stopJob, 10), stopBtn); return; }
     const otpBtn = e.target.closest('[data-submit-otp-job]');
     if (otpBtn) { submitManualOtpForJob(otpBtn); return; }
+    const cfBtn = e.target.closest('[data-cf-open]');
+    if (cfBtn) { reopenManualInterventionForJob(parseInt(cfBtn.dataset.cfOpen, 10)); return; }
     const retryBtn = e.target.closest('[data-retry-job]');
     if (retryBtn) {
       if (retryBtn.dataset.pointerHandled === '1') {
@@ -2991,18 +3674,21 @@ function renderJobs() {
     bodyV2.innerHTML = rows.map(j => {
       const running = ['running','stopping'].includes(j.status);
       const stoppable = ['pending','running','stopping'].includes(j.status);
-      const started = formatDateTime(j.started_at);
-      const completed = formatDateTime(j.completed_at);
+      const started = formatJobTime(j.started_at);
+      const completed = formatJobTime(j.completed_at);
+      const startedFull = formatDateTime(j.started_at);
+      const completedFull = formatDateTime(j.completed_at);
       const err = j.error_message || '';
       const manualOtp = j.status === 'running' && j.email && j.manual_otp_required;
+      const cfPending = manualInterventionItemForJob(j.id);
       return `
       <tr>
         <td class="col-check"><input type="checkbox" class="job-row-check" data-job-id="${esc(j.id)}" ${JOB_SELECTED.has(Number(j.id)) ? 'checked' : ''} ${running ? 'disabled title="运行中的任务不能选择"' : ''}></td>
-        <td class="col-id">#${esc(j.id)}${j.parent_job_id ? `<div class="sub-cell" title="重试自任务 #${esc(j.parent_job_id)}">↳ #${esc(j.parent_job_id)} · ${esc(j.retry_attempt || 1)}</div>` : ''}</td>
-        <td class="col-status">${pillV2(j.display_status || j.status)}</td>
+        <td class="col-id">#${esc(j.id)}${j.parent_job_id ? `<div class="sub-cell" title="重试自任务 #${esc(j.parent_job_id)}，第 ${esc(j.retry_attempt || 1)} 次重试">↳ #${esc(j.parent_job_id)}${Number(j.retry_attempt) > 1 ? ' ·' + esc(j.retry_attempt) : ''}</div>` : ''}</td>
+        <td class="col-status">${pillV2(j.display_status || j.status)}${cfPending ? `<button type="button" class="cf-badge" data-cf-open="${esc(j.id)}" title="页面被 Cloudflare 风控接管，需要你到指纹浏览器窗口里手动处理（点这里重新打开提醒）">风控待处理</button>` : ''}</td>
         <td class="col-email" title="${esc(j.email || '-')}">${esc(j.email || '-')}</td>
-        <td class="col-time" title="${esc(started)}">${esc(started)}</td>
-        <td class="col-time" title="${esc(completed)}">${esc(completed)}</td>
+        <td class="col-time" title="${esc(startedFull)}">${esc(started)}</td>
+        <td class="col-time" title="${esc(completedFull)}">${esc(completed)}</td>
         <td class="col-traffic">${formatTraffic(j.network_traffic)}</td>
         <td class="col-error" title="${esc(err)}">${esc(err ? short(err, 60) : '-')}</td>
         <td class="col-actions">
@@ -3065,8 +3751,13 @@ function updateModalScrollLock() {
     || !$('#retryLogPanel').classList.contains('hidden')
     || !$('#liveLogPanel').classList.contains('hidden')
     || !$('#totpLogPanel').classList.contains('hidden')
+    || !$('#planLogPanel').classList.contains('hidden')
     || !$('#emailChangeLogPanel').classList.contains('hidden')
     || !$('#qrPanel').classList.contains('hidden')
+    || !$('#pgmEditPanel').classList.contains('hidden')
+    || !$('#manualOtpPanel').classList.contains('hidden')
+    || !$('#manualInterventionPanel').classList.contains('hidden')
+    || !$('#clientErrorPanel').classList.contains('hidden')
     || !$('#outlookImportModal').classList.contains('hidden')
     || !$('#emailChangeModalV2').classList.contains('hidden');
   const locked = document.body.classList.contains('modal-open');
@@ -3085,6 +3776,7 @@ function updateModalScrollLock() {
 function closeLogModal() {
   activeLogJob = null;
   clearInterval(logTimer);
+  stopManualLiveWatch();
   $('#logPanel').classList.add('hidden');
   updateModalScrollLock();
 }
@@ -3112,6 +3804,121 @@ function closeQrModal() {
   $('#qrImage').removeAttribute('src');
   updateModalScrollLock();
 }
+
+// ---------- 长错误 → 弹框 ----------
+// 「本地浏览器客户端没启动」这类错误是多行长文本（中文可操作提示 + 英文原始错误），
+// 直接塞进行内警告条会把表格上方撑成一大段。这里统一改成弹框展示完整内容：
+// 弹框里显示可操作的中文提示，英文原始错误收在可折叠区，另附「重新检测客户端」。
+let lastRegSubmitError = '';
+let clientErrorDetailText = '';
+
+function isBrowserClientError(message) {
+  const text = String(message || '');
+  return text.includes('本地接口') && /(无法连接|未配置)/.test(text);
+}
+
+function closeClientErrorDialog() {
+  const panel = $('#clientErrorPanel');
+  if (!panel) return;
+  panel.classList.add('hidden');
+  const statusEl = $('#clientErrorStatus');
+  if (statusEl) { statusEl.textContent = ''; statusEl.className = 'err-dialog-status'; }
+  updateModalScrollLock();
+}
+
+function openClientErrorDialog(message, opts = {}) {
+  const panel = $('#clientErrorPanel');
+  const title = String(opts.title || '操作未成功');
+  if (!panel) { showToast(`${title}：${browserClientPromptLines(message).visible || message}`); return; }
+  const isClientErr = opts.isClientError == null ? isBrowserClientError(message) : !!opts.isClientError;
+  const { visible, raw } = browserClientPromptLines(message);
+  const body = visible || String(message || '');
+  clientErrorDetailText = [title, body, raw].filter(Boolean).join('\n');
+  $('#clientErrorTitle').textContent = title;
+  $('#clientErrorMsg').textContent = body;
+  const badge = $('#clientErrorBadge');
+  if (badge) badge.textContent = isClientErr ? '!' : '×';
+  const rawWrap = $('#clientErrorRawWrap');
+  if (rawWrap) {
+    if (raw) { $('#clientErrorRaw').textContent = raw; rawWrap.classList.remove('hidden'); }
+    else { $('#clientErrorRaw').textContent = ''; rawWrap.classList.add('hidden'); }
+  }
+  const recheckBtn = $('#btnClientErrorRecheck');
+  if (recheckBtn) recheckBtn.classList.toggle('hidden', !isClientErr);
+  const statusEl = $('#clientErrorStatus');
+  if (statusEl) { statusEl.textContent = ''; statusEl.className = 'err-dialog-status'; }
+  panel.classList.remove('hidden');
+  updateModalScrollLock();
+}
+
+async function recheckBrowserClient() {
+  const btn = $('#btnClientErrorRecheck');
+  const statusEl = $('#clientErrorStatus');
+  if (btn) btn.disabled = true;
+  if (statusEl) { statusEl.className = 'err-dialog-status'; statusEl.textContent = '正在探测本地浏览器客户端接口…'; }
+  try {
+    const r = await api('/api/browser-client/check');
+    if (r.ok) {
+      if (statusEl) {
+        statusEl.className = 'err-dialog-status ok';
+        statusEl.textContent = `检测通过：${r.message || ((r.label || '本地客户端') + ' 接口可访问')}。关闭本窗口后重新提交即可。`;
+      }
+      showToast('本地客户端已就绪');
+      return;
+    }
+    const { visible, raw } = browserClientPromptLines(r.error || '未知错误');
+    if (statusEl) {
+      statusEl.className = 'err-dialog-status bad';
+      statusEl.textContent = '仍然连不上：' + ((visible.split('\n')[0] || '').trim() || '未知错误');
+    }
+    if (visible) $('#clientErrorMsg').textContent = visible;
+    const rawWrap = $('#clientErrorRawWrap');
+    if (raw && rawWrap) { $('#clientErrorRaw').textContent = raw; rawWrap.classList.remove('hidden'); }
+    clientErrorDetailText = [String($('#clientErrorTitle').textContent || ''), visible, raw].filter(Boolean).join('\n');
+  } catch(e) {
+    if (statusEl) { statusEl.className = 'err-dialog-status bad'; statusEl.textContent = '检测失败：' + e.message; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// 提交注册失败：长错误走弹框 + 行内只留一行摘要（可「查看详情」重开），短错误保持原来的行内警告条。
+function showRegSubmitError(message) {
+  const text = String(message || '');
+  lastRegSubmitError = text;
+  const { visible, raw } = browserClientPromptLines(text);
+  const lines = visible.split('\n').map(s => s.trim()).filter(Boolean);
+  const warnEl = $('#regWarnV2');
+  const needDialog = lines.length > 1 || text.length > 80 || !!raw || isBrowserClientError(text);
+  if (!needDialog) {
+    if (warnEl) warnEl.innerHTML = `<div class="banner warn">${esc(visible || text)}</div>`;
+    return;
+  }
+  if (warnEl) {
+    warnEl.innerHTML =
+      `<div class="banner warn reg-warn-summary">`
+      + `<span class="reg-warn-summary-text">${esc(lines[0] || '提交失败')}</span>`
+      + `<button type="button" class="btn" id="btnRegWarnDetail">查看详情</button>`
+      + `</div>`;
+    const detailBtn = $('#btnRegWarnDetail');
+    if (detailBtn) {
+      detailBtn.addEventListener('click', () => openClientErrorDialog(lastRegSubmitError, {title: '开始注册失败'}));
+    }
+  }
+  openClientErrorDialog(lastRegSubmitError, {title: '开始注册失败'});
+}
+
+if ($('#btnCloseClientError')) $('#btnCloseClientError').addEventListener('click', closeClientErrorDialog);
+if ($('#btnClientErrorOk')) $('#btnClientErrorOk').addEventListener('click', closeClientErrorDialog);
+if ($('#btnClientErrorRecheck')) $('#btnClientErrorRecheck').addEventListener('click', recheckBrowserClient);
+if ($('#btnCopyClientError')) {
+  $('#btnCopyClientError').addEventListener('click', () => copyText(clientErrorDetailText));
+}
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const panel = $('#clientErrorPanel');
+  if (panel && !panel.classList.contains('hidden')) closeClientErrorDialog();
+});
 
 $('#btnCloseLog').addEventListener('click', closeLogModal);
 
@@ -3247,6 +4054,10 @@ function openLog(jobId) {
   activeLogJob = jobId;
   $('#logJobId').textContent = jobId;
   $('#logPanel').classList.remove('hidden');
+  $('#logManualLiveBar').classList.add('hidden');
+  manualLiveJob = null;
+  manualLiveEmail = null;
+  manualLiveChecking = false;
   updateModalScrollLock();
   $('#logContent').textContent = '加载中…';
   pollLog();
@@ -3262,13 +4073,100 @@ async function pollLog() {
     c.textContent = r.log || '(暂无日志)';
     if (atBottom) c.scrollTop = c.scrollHeight;
     if (r.job && ['success','failed','stopped','cancelled'].includes(r.job.status)) clearInterval(logTimer);
+    applyManualLiveState(r);
   } catch(e) {}
 }
+
+// ---------- 注册失败后的手动查活（日志面板内） ----------
+let manualLiveJob = null;      // 当前可手动查活的任务 id
+let manualLiveEmail = null;    // 对应邮箱（用于打开查活日志）
+let manualLiveChecking = false;// 已发起、等待结果
+let manualLiveWatchTimer = null;
+
+function applyManualLiveState(r) {
+  const bar = $('#logManualLiveBar');
+  if (!bar) return;
+  const m = r.manual_live_check;
+  if (!m || !m.eligible) {
+    if (manualLiveChecking && r.job && r.job.account_id) {
+      // 查活成功后任务已关联账号，条目自动隐藏并提示
+      showToast('手动查活成功，账号已加入账号列表');
+      refreshJobs();
+      if (typeof loadAccounts === 'function') loadAccounts();
+    }
+    bar.classList.add('hidden');
+    stopManualLiveWatch();
+    return;
+  }
+  manualLiveJob = Number(r.job ? r.job.id : activeLogJob);
+  manualLiveEmail = (r.job && r.job.email) || '';
+  bar.classList.remove('hidden');
+  const btn = $('#btnManualLiveCheck');
+  if (m.running || manualLiveChecking) {
+    btn.disabled = true;
+    $('#logManualLiveHint').textContent = '手动查活进行中，正在后台重新登录该邮箱；查活成功后账号会自动加入账号列表。详情可在「账号」页查看该邮箱的查活日志。';
+    if (m.running) manualLiveChecking = true;
+    if (!manualLiveWatchTimer) startManualLiveWatch();
+  } else {
+    btn.disabled = false;
+    $('#logManualLiveHint').textContent = '该任务在「已点击资料页提交按钮，等待 OAuth 跳转」之后失败，账号可能已在服务端创建成功。可点击手动查活验证：成功后自动加入账号列表。';
+  }
+}
+function startManualLiveWatch() {
+  stopManualLiveWatch();
+  manualLiveWatchTimer = setInterval(async () => {
+    if (manualLiveJob == null || $('#logPanel').classList.contains('hidden')) { stopManualLiveWatch(); return; }
+    try {
+      const r = await api(`/api/jobs/${manualLiveJob}/log`);
+      const m = r.manual_live_check || {};
+      if (!m.running) {
+        stopManualLiveWatch();
+        manualLiveChecking = false;
+        const btn = $('#btnManualLiveCheck');
+        if (r.job && r.job.account_id) {
+          $('#logManualLiveHint').textContent = '手动查活成功，账号已加入账号列表。';
+          showToast('手动查活成功，账号已加入账号列表');
+          refreshJobs();
+          if (typeof loadAccounts === 'function') loadAccounts();
+        } else if (m.eligible) {
+          btn.disabled = false;
+          $('#logManualLiveHint').textContent = '上次手动查活未成功（详见账号页该邮箱的查活日志），可重试或稍后再试。';
+        } else {
+          $('#logManualLiveBar').classList.add('hidden');
+        }
+      }
+    } catch (e) {}
+  }, 5000);
+}
+function stopManualLiveWatch() {
+  clearInterval(manualLiveWatchTimer);
+  manualLiveWatchTimer = null;
+}
+$('#btnManualLiveCheck').addEventListener('click', async () => {
+  if (manualLiveJob == null) return;
+  const btn = $('#btnManualLiveCheck');
+  btn.disabled = true;
+  try {
+    await api(`/api/jobs/${manualLiveJob}/manual-live-check`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: '{}',
+    });
+    manualLiveChecking = true;
+    $('#logManualLiveHint').textContent = '手动查活已启动，正在后台重新登录该邮箱；查活成功后账号会自动加入账号列表。';
+    if (manualLiveEmail) openLiveLog(manualLiveEmail);
+    startManualLiveWatch();
+  } catch (e) {
+    showToast('启动手动查活失败: ' + e.message);
+    btn.disabled = false;
+  }
+});
 
 // ---------- 账号 ----------
 let accountsLoading = false;
 let planStatusLoading = false;
 let planStatusRevision = '';
+let planOptionsDirty = false;
 function getAccountsQuery() {
   const el = document.getElementById('qAccountsV2');
   return (el ? el.value : '').trim();
@@ -3291,6 +4189,85 @@ function getAccountsPlanFilter() {
   if (SHOW_FREE_ACCOUNTS_ONLY) return 'free_no_trial';
   return '';
 }
+// 套餐分组筛选：值为「分组|状态」，状态里带活动短标签（plus_trial:1月半价）。
+let PLAN_GROUP_FILTER = [];
+let PLAN_GROUP_OPTIONS = [];
+function planGroupFilterQuery() {
+  return PLAN_GROUP_FILTER.join(',');
+}
+async function loadPlanGroupOptions() {
+  try {
+    const archived = SHOW_ARCHIVED_ACCOUNTS ? 'only' : '0';
+    const r = await api(`/api/accounts/plan-group-options?archived=${encodeURIComponent(archived)}`);
+    PLAN_GROUP_OPTIONS = Array.isArray(r.options) ? r.options : [];
+  } catch (e) {
+    PLAN_GROUP_OPTIONS = [];
+  }
+  // 选项消失（账号被删除/归档）时同步清掉无效选择，避免筛出空列表。
+  const valid = new Set(PLAN_GROUP_OPTIONS.map(o => o.value));
+  PLAN_GROUP_FILTER = PLAN_GROUP_FILTER.filter(v => valid.has(v));
+  renderPlanGroupFilterMenu();
+}
+function renderPlanGroupFilterMenu() {
+  const menu = document.getElementById('planGroupFilterMenuV2');
+  const btn = document.getElementById('btnPlanGroupFilterV2');
+  if (!menu) return;
+  if (btn) {
+    btn.textContent = PLAN_GROUP_FILTER.length ? `🏷 套餐分组(${PLAN_GROUP_FILTER.length})` : '🏷 套餐分组';
+  }
+  if (!PLAN_GROUP_OPTIONS.length) {
+    menu.innerHTML = '<div class="pgf-empty">还没有按代理分组查过套餐。选中账号后点「查套餐 ▾」选择分组查询，这里就会出现可选状态。</div>';
+    return;
+  }
+  const byGroup = {};
+  PLAN_GROUP_OPTIONS.forEach((o) => { (byGroup[o.group] = byGroup[o.group] || []).push(o); });
+  const html = [];
+  Object.keys(byGroup).forEach((name) => {
+    html.push(`<div class="pgf-title">分组 ${esc(name)}</div>`);
+    byGroup[name].forEach((o) => {
+      const on = PLAN_GROUP_FILTER.includes(o.value);
+      const tip = o.activity_title ? `${o.label}｜${o.activity_title}` : `${o.label}｜${o.count} 个账号`;
+      html.push(`<button type="button" class="pgf-item${on ? ' is-active' : ''}" data-pgf-value="${attrEsc(o.value)}" title="${attrEsc(tip)}"><span class="pgf-box">${on ? '✓' : ''}</span><span>${esc(o.label)}</span><span class="pgf-count">${esc(o.count)}</span></button>`);
+    });
+  });
+  html.push('<div class="pgf-actions"><button type="button" class="jobs-tb-btn" data-pgf-clear>清空</button><button type="button" class="jobs-tb-btn" data-pgf-reload>刷新选项</button></div>');
+  menu.innerHTML = html.join('');
+}
+function applyPlanGroupFilter() {
+  ACCOUNT_SELECTED.clear();
+  PAGERS.accounts.page = 1;
+  planStatusRevision = '';
+  loadAccounts();
+}
+(function bindPlanGroupFilter() {
+  const btn = document.getElementById('btnPlanGroupFilterV2');
+  const menu = document.getElementById('planGroupFilterMenuV2');
+  const wrap = document.getElementById('planGroupFilterWrapV2');
+  if (!btn || !menu || !wrap) return;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = wrap.classList.toggle('open');
+    if (open) loadPlanGroupOptions();
+  });
+  menu.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const reload = e.target.closest('[data-pgf-reload]');
+    if (reload) { loadPlanGroupOptions(); return; }
+    const clear = e.target.closest('[data-pgf-clear]');
+    if (clear) { PLAN_GROUP_FILTER = []; renderPlanGroupFilterMenu(); applyPlanGroupFilter(); return; }
+    const item = e.target.closest('[data-pgf-value]');
+    if (!item) return;
+    const value = item.dataset.pgfValue;
+    const idx = PLAN_GROUP_FILTER.indexOf(value);
+    if (idx >= 0) PLAN_GROUP_FILTER.splice(idx, 1);
+    else PLAN_GROUP_FILTER.push(value);
+    renderPlanGroupFilterMenu();
+    applyPlanGroupFilter();
+  });
+  document.addEventListener('click', (e) => {
+    if (!wrap.contains(e.target)) wrap.classList.remove('open');
+  });
+})();
 async function loadAccounts() {
   if (accountsLoading) return;
   accountsLoading = true;
@@ -3303,7 +4280,7 @@ async function loadAccounts() {
     const dateFrom = document.getElementById('dateFromAccountsV2')?.value || '';
     const dateTo = document.getElementById('dateToAccountsV2')?.value || '';
     const p = PAGERS.accounts;
-    const res = await api(`/api/accounts?paged=1&page=${encodeURIComponent(p.page)}&page_size=${encodeURIComponent(p.size)}&archived=${encodeURIComponent(archived)}&plan=${encodeURIComponent(plan)}&codex_status=${encodeURIComponent(codex)}&totp_status=${encodeURIComponent(totp)}&q=${encodeURIComponent(q)}&date_from=${encodeURIComponent(dateFrom)}&date_to=${encodeURIComponent(dateTo)}`);
+    const res = await api(`/api/accounts?paged=1&page=${encodeURIComponent(p.page)}&page_size=${encodeURIComponent(p.size)}&archived=${encodeURIComponent(archived)}&plan=${encodeURIComponent(plan)}&codex_status=${encodeURIComponent(codex)}&totp_status=${encodeURIComponent(totp)}&plan_group=${encodeURIComponent(planGroupFilterQuery())}&q=${encodeURIComponent(q)}&date_from=${encodeURIComponent(dateFrom)}&date_to=${encodeURIComponent(dateTo)}`);
     ACCOUNTS = res.items || [];
     ACCOUNTS_TOTAL = Number(res.total || ACCOUNTS.length || 0);
     const totalPages = Math.max(1, Math.ceil(ACCOUNTS_TOTAL / p.size));
@@ -3324,7 +4301,7 @@ async function pollAccountPlanStatuses() {
     const dateFrom = document.getElementById('dateFromAccountsV2')?.value || '';
     const dateTo = document.getElementById('dateToAccountsV2')?.value || '';
     const p = PAGERS.accounts;
-    const snapshot = await api(`/api/accounts/plan-check-status?page=${encodeURIComponent(p.page)}&page_size=${encodeURIComponent(p.size)}&archived=${encodeURIComponent(archived)}&plan=${encodeURIComponent(plan)}&codex_status=${encodeURIComponent(codex)}&totp_status=${encodeURIComponent(totp)}&q=${encodeURIComponent(q)}&date_from=${encodeURIComponent(dateFrom)}&date_to=${encodeURIComponent(dateTo)}`);
+    const snapshot = await api(`/api/accounts/plan-check-status?page=${encodeURIComponent(p.page)}&page_size=${encodeURIComponent(p.size)}&archived=${encodeURIComponent(archived)}&plan=${encodeURIComponent(plan)}&codex_status=${encodeURIComponent(codex)}&totp_status=${encodeURIComponent(totp)}&plan_group=${encodeURIComponent(planGroupFilterQuery())}&q=${encodeURIComponent(q)}&date_from=${encodeURIComponent(dateFrom)}&date_to=${encodeURIComponent(dateTo)}`);
     const items = snapshot.items || [];
     const accountById = new Map(ACCOUNTS.map(r => [Number(r.id), r]));
     const hasUnknown = items.some(item => !accountById.has(Number(item.id)));
@@ -3344,6 +4321,7 @@ async function pollAccountPlanStatuses() {
         const wasAgenting = ['queued', 'running'].includes(account?.codex_agent_status);
         const isAgenting = ['queued', 'running'].includes(item.codex_agent_status);
         if (wasChecking && !isChecking) needsFullReload = true;
+        if (wasChecking && !isChecking) planOptionsDirty = true;
         if (wasExtracting && !isExtracting) needsFullReload = true;
         if (wasAgenting && !isAgenting) needsFullReload = true;
         Object.assign(account, item);
@@ -3351,6 +4329,11 @@ async function pollAccountPlanStatuses() {
       planStatusRevision = snapshot.revision || '';
       if (needsFullReload) await loadAccounts();
       else renderAccounts();
+      // 有分组查询刚结束：刷新「套餐分组」筛选里的分组-活动选项。
+      if (planOptionsDirty) {
+        planOptionsDirty = false;
+        loadPlanGroupOptions();
+      }
     }
   } catch(e) {}
   finally { planStatusLoading = false; }
@@ -3450,6 +4433,65 @@ function _discountLabel(r) {
   if (!Number.isNaN(n)) return `${n}折扣`;
   return `${amount}折扣`;
 }
+// 分组标签里的活动短标签说明：1月免费/1月半价/2月半价/3月半价 = 对应 Plus 活动。
+// 所有分组都没查到活动时，只显示一个光秃秃的 free。
+// 悬浮提示里给完整说明 + 活动 ID + 查询时间，便于确认到底是哪个地区的哪个活动。
+function _planActivityTips(rec) {
+  const tips = [];
+  const id = (rec.activity_id || '').toString().trim();
+  const title = (rec.activity_title || '').toString().trim();
+  if (title) tips.push(title);
+  if (id) tips.push(`活动ID: ${id}`);
+  if (rec.checked_at) tips.push(`查询: ${rec.checked_at}`);
+  if (rec.proxy_used) tips.push(`出口: ${rec.proxy_used}`);
+  if (rec.proxy_mode) tips.push(`模式: ${rec.proxy_mode}`);
+  return tips;
+}
+function _planGroupTagsCell(r) {
+  const groups = r.plan_check_groups;
+  if (!groups || typeof groups !== 'object') return '';
+  const names = Object.keys(groups);
+  if (!names.length) return '';
+  const tags = [];
+  const fails = [];
+  let freeCount = 0;
+  names.forEach((name) => {
+    const rec = groups[name];
+    if (!rec || typeof rec !== 'object') return;
+    const okRec = rec.ok === true || rec.status === 'success';
+    if (!okRec) { fails.push({ name, rec }); return; }
+    const ptype = (rec.plan_type || '').toString().toLowerCase();
+    const short = (rec.activity_short || '').toString().trim();
+    if (short) {
+      // 提示里不再重复活动全称（_planActivityTips 已包含），避免出现两遍。
+      const tips = [`${name}｜${short}`, ..._planActivityTips(rec)];
+      tags.push(`<span class="plan-tag plan-tag--promo" title="${attrEsc(tips.join('\n'))}"><span class="plan-tag-group">${esc(name)}</span>-${esc(short)}</span>`);
+      return;
+    }
+    if (ptype && ptype !== 'free') {
+      const tips = [`${name}｜当前套餐 ${rec.plan_type}`, ..._planActivityTips(rec)];
+      tags.push(`<span class="plan-tag plan-tag--plus" title="${attrEsc(tips.join('\n'))}"><span class="plan-tag-group">${esc(name)}</span>-${esc(rec.plan_type)}</span>`);
+      return;
+    }
+    freeCount += 1;
+  });
+  const failTag = fails.length
+    ? `<span class="plan-tag plan-tag--fail" title="${attrEsc(fails.map(f => `${f.name}｜${f.rec.error || '查询失败'}`).join('\n'))}">${fails.length}组失败</span>`
+    : '';
+  if (tags.length) return `<div class="plan-tags">${tags.join('')}${failTag}</div>`;
+  // 所有分组都没查到活动：直接显示一个 free（提示里列出查过的分组）。
+  if (freeCount > 0) {
+    const tips = names.map((n) => {
+      const rec = groups[n] || {};
+      const okRec = rec.ok === true || rec.status === 'success';
+      return okRec ? `${n}｜free（无 Plus 活动）` : `${n}｜${rec.error || '查询失败'}`;
+    });
+    if (r.plan_checked_at) tips.push(`查询: ${r.plan_checked_at}`);
+    return `<div class="plan-tags"><span class="plan-tag plan-tag--free" title="${attrEsc(tips.join('\n'))}">free</span>${failTag}</div>`;
+  }
+  // 全部分组都失败：交给外层按账号整体状态渲染错误。
+  return '';
+}
 function _planCell(r) {
   const ok = r.plan_check_ok;
   const err = r.plan_check_error || '';
@@ -3468,6 +4510,10 @@ function _planCell(r) {
     const detail = stamp ? `${queued ? '入队' : '开始'}: ${esc(stamp)}` : '';
     return `<span class="pill status-running" title="${detail}">${label}</span>`;
   }
+  // 按代理分组查询过的账号：套餐列展示「分组-活动」标签
+  // （free = 该分组有 1 个月免费活动；1月半价/2月半价… = 对应折扣活动）。
+  const grouped = _planGroupTagsCell(r);
+  if (grouped) return grouped;
   if (err || r.plan_check_status === 'failed') {
     const reason = err || '套餐查询失败，未返回具体原因';
     const hasLastSuccess = Boolean(r.plan_last_success_at);
@@ -3506,15 +4552,6 @@ function _planCell(r) {
   if (r.discount_expires_at) detail.push(`折扣结束: ${r.discount_expires_at}`);
   if (r.discount_promo_campaign_id) detail.push(`优惠: ${r.discount_promo_campaign_id}`);
   return `<span class="pill ${cls}" title="${esc(detail.join('；'))}">${esc(text)}</span>`;
-}
-function _planAction(r) {
-  if (['queued','running'].includes(r.plan_check_status)) {
-    const automatic = r.plan_check_trigger === 'registration_auto';
-    const queued = r.plan_check_status === 'queued';
-    const label = automatic ? (queued ? '自动查询排队中…' : '自动查询中…') : (queued ? '查询排队中…' : '查询中…');
-    return `<button data-plan-check="${esc(r.id)}" disabled title="套餐查询正在执行，完成后可再次查询">${label}</button>`;
-  }
-  return `<button data-plan-check="${esc(r.id)}" title="查询当前套餐；free 账号会检查 Plus 试用资格">查套餐</button>`;
 }
 function _fmtExtractExpire(v) {
   if (!v) return '';
@@ -3594,7 +4631,7 @@ function _accountsV2MoreMenu(r) {
     `<button type="button" onclick="checkSelectedLive([Number('${esc(r.id)}')], this); return false;" title="重新登录该账号，成功则刷新最新 AT/accessToken">查活刷新AT</button>`,
     `<button type="button" data-account-live-log="${esc(r.email)}" title="查看该账号最近一次查活日志">查活日志</button>`,
     `<button type="button" data-account-totp-log="${esc(r.email)}" title="查看该账号最近一次 2FA 设置日志">2FA日志</button>`,
-    _planAction(r),
+    `<button type="button" data-account-plan-log="${esc(r.email)}" title="查看该账号最近一次套餐查询日志（含实际使用的代理出口）">查套餐日志</button>`,
     _extractLinkAction(r),
     _codexAction(r),
     `<button type="button" data-codex-log="${esc(r.email)}" title="查看该账号最近一次 Codex 补跑日志">补跑日志</button>`,
@@ -3645,7 +4682,7 @@ function renderAccounts() {
       <td class="col-note" title="${esc(r.note || '')}">${r.note ? esc(short(r.note, 80)) : '<span class="acc-v2-muted">-</span>'}</td>
       <td class="col-small">${_totpCellV2(r)}</td>
       <td class="col-status">${_codexCellV2(r)}</td>
-      <td class="col-time" title="${esc(r.created_at || '-')}">${esc(r.created_at || '-')}</td>
+      <td class="col-time" title="${esc(formatDateTime(r.created_at))}">${esc(formatJobTime(r.created_at))}</td>
       <td class="col-actions">
         <div class="acc-v2-actions">
           <button type="button" class="danger" data-account-delete="${esc(r.id)}" data-email="${esc(r.email)}">删除</button>
@@ -3793,6 +4830,42 @@ function closeTotpLogModal() {
 }
 $('#btnCloseTotpLog').addEventListener('click', closeTotpLogModal);
 
+// ---------- 查套餐日志面板 ----------
+let planLogEmail = null, planLogTimer = null;
+
+function openPlanLog(email) {
+  planLogEmail = email;
+  $('#planLogEmail').textContent = email;
+  $('#planLogPanel').classList.remove('hidden');
+  updateModalScrollLock();
+  $('#planLogContent').textContent = '加载中…';
+  pollPlanLog();
+  clearInterval(planLogTimer);
+  planLogTimer = setInterval(pollPlanLog, 5000);
+}
+async function pollPlanLog() {
+  if (!planLogEmail) return;
+  try {
+    const r = await api(`/api/accounts/plan-check-log?email=${encodeURIComponent(planLogEmail)}`);
+    const c = $('#planLogContent');
+    const atBottom = c.scrollTop + c.clientHeight >= c.scrollHeight - 30;
+    c.textContent = r.log || '(暂无日志，等待任务写入…)';
+    if (atBottom) c.scrollTop = c.scrollHeight;
+    if (!r.running) {
+      clearInterval(planLogTimer);
+      loadAccounts();
+    }
+  } catch(e) {}
+}
+function closePlanLogModal() {
+  $('#planLogPanel').classList.add('hidden');
+  updateModalScrollLock();
+  clearInterval(planLogTimer);
+  planLogTimer = null;
+  planLogEmail = null;
+}
+$('#btnClosePlanLog').addEventListener('click', closePlanLogModal);
+
 let emailChangeLogAccountId = null, emailChangeLogTimer = null;
 function openEmailChangeLog(accountId) {
   emailChangeLogAccountId = Number(accountId);
@@ -3909,6 +4982,12 @@ async function onAccountsBodyClick(e) {
   const totpLogBtn = e.target.closest('[data-account-totp-log]');
   if (totpLogBtn) {
     openTotpLog(totpLogBtn.dataset.accountTotpLog);
+    return;
+  }
+
+  const planLogBtn = e.target.closest('[data-account-plan-log]');
+  if (planLogBtn) {
+    openPlanLog(planLogBtn.dataset.accountPlanLog);
     return;
   }
 
@@ -4253,7 +5332,7 @@ async function setupAccountTotp(id, btn) {
 async function setupSelectedTotp() {
   const ids = Array.from(ACCOUNT_SELECTED).map(Number);
   if (!ids.length) { showToast('请先选择账号'); return; }
-  if (!confirm(`确定为选中的 ${ids.length} 个账号批量开启 2FA？\n\n任务会在后台排队执行，完成后自动把 TOTP 密钥写回账号信息。\n已经开启、没有 Token 或正在设置中的账号会自动跳过。`)) return;
+  if (!confirm(`确定为选中的 ${ids.length} 个账号批量开启 2FA？\n\n任务会在后台排队执行，完成后自动把 TOTP 密钥写回账号信息。\n已经开启、没有 Token 或正在设置中的账号会自动跳过。\n${proxyGroupDesc('totp')}`)) return;
 
   const btn = document.getElementById('btnSetupSelectedTotpV2');
   if (!btn) return;
@@ -4264,7 +5343,7 @@ async function setupSelectedTotp() {
     const r = await api('/api/accounts/totp-setup-bulk', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({account_ids: ids}),
+      body: JSON.stringify({account_ids: ids, ...proxyGroupRequestFields('totp')}),
     });
     (r.started || []).forEach(item => ACCOUNT_SELECTED.delete(Number(item.id)));
     const skippedCount = Number(r.skipped_count ?? (r.skipped || []).length) || 0;
@@ -4557,10 +5636,12 @@ async function checkOnePlan(id, btn) {
   const old = btn.textContent;
   btn.textContent = '查询中…';
   try {
+    // 与批量查询保持一致：带上「套餐查询」下拉里选中的代理分组，
+    // 否则行内查询会忽略分组选择、只查默认分组（结果看上去和上次一样）。
     const r = await api('/api/accounts/check-plan', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({account_id: id}),
+      body: JSON.stringify({account_id: id, ...proxyGroupRequestFields('plan')}),
     });
     showToast(r.message || '套餐查询已加入后台队列');
     await pollAccountPlanStatuses();
@@ -4802,11 +5883,12 @@ async function checkSelectedPlans() {
     const r = await api('/api/accounts/check-plan-bulk', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({account_ids: ids, workers}),
+      body: JSON.stringify({account_ids: ids, workers, ...proxyGroupRequestFields('plan')}),
     });
     const failed = r.failed_count || 0;
     const busy = r.busy_count || 0;
-    showToast(`已入队 ${r.started_count || 0} 个，查询中跳过 ${busy} 个，入队失败 ${failed} 个`);
+    const groups = (r.proxy_groups || []).length;
+    showToast(`已入队 ${r.started_count || 0} 个${groups > 1 ? `（每个账号查 ${groups} 个分组）` : ''}，查询中跳过 ${busy} 个，入队失败 ${failed} 个`);
     await pollAccountPlanStatuses();
   } catch(err) {
     showToast('批量查询失败: ' + err.message);
@@ -4824,7 +5906,8 @@ async function checkSelectedLive(idsArg = null, btnArg = null) {
 
 会重新登录邮箱 OTP；登录成功且未封号则标记正常，并刷新最新 AT/accessToken。
 
-并发线程数：${workers}`;
+并发线程数：${workers}
+${proxyGroupDesc('live')}`;
   if (!confirm(msg)) return;
   const firstAcc = ACCOUNTS.find(a => Number(a.id) === Number(ids[0]));
   const btn = btnArg || $('#btnCheckSelectedLiveV2');
@@ -4837,7 +5920,7 @@ async function checkSelectedLive(idsArg = null, btnArg = null) {
     const r = await api('/api/accounts/check-live-bulk', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({account_ids: ids, workers}),
+      body: JSON.stringify({account_ids: ids, workers, ...proxyGroupRequestFields('live')}),
     });
     const skipped = (r.skipped || []).length;
     showToast(`查活已入队 ${r.started_count || 0} 个，忙碌 ${r.busy_count || 0} 个，失败 ${r.failed_count || 0}${skipped ? `，跳过 ${skipped}` : ''}`);
@@ -5070,9 +6153,9 @@ let EMAIL_CHANGE_ACCOUNT_IDS = [];
 function openEmailChangeModal(ids) {
   EMAIL_CHANGE_ACCOUNT_IDS = (ids || []).map(Number).filter(Boolean);
   if (!EMAIL_CHANGE_ACCOUNT_IDS.length) { showToast('请先选择账号'); return; }
-  $('#emailChangeHintV2').textContent = EMAIL_CHANGE_ACCOUNT_IDS.length === 1
+  $('#emailChangeHintV2').textContent = (EMAIL_CHANGE_ACCOUNT_IDS.length === 1
     ? `将为账号 #${EMAIL_CHANGE_ACCOUNT_IDS[0]} 换绑新邮箱，请选择来源。`
-    : `将为选中的 ${EMAIL_CHANGE_ACCOUNT_IDS.length} 个账号分别领取并换绑新邮箱。`;
+    : `将为选中的 ${EMAIL_CHANGE_ACCOUNT_IDS.length} 个账号分别领取并换绑新邮箱。`) + `（${proxyGroupDesc('email')}）`;
   $('#emailChangeModalV2').classList.remove('hidden');
   updateModalScrollLock();
 }
@@ -5089,7 +6172,9 @@ async function submitEmailChange() {
   btn.disabled = true;
   try {
     const url = ids.length === 1 ? `/api/accounts/${ids[0]}/change-email` : '/api/accounts/change-email-bulk';
-    const body = ids.length === 1 ? {source} : {source, account_ids: ids};
+    const body = ids.length === 1
+      ? {source, ...proxyGroupRequestFields('email')}
+      : {source, account_ids: ids, ...proxyGroupRequestFields('email')};
     const r = await api(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
     closeEmailChangeModal();
     ACCOUNT_SELECTED.clear();
@@ -6045,6 +7130,862 @@ function bindRoxyWorkspaceToolsV2() {
   saveBtn.addEventListener('click', () => saveRoxyWorkspaceSelection());
 }
 
+// 本地浏览器客户端（比特 / Roxy）没启动时的提示很长，界面上只显示可操作的前两行，
+// 英文原始错误收进 title，鼠标悬停仍可查看。
+function browserClientPromptLines(message) {
+  const lines = String(message || '').split('\n');
+  const idx = lines.findIndex(l => l.startsWith('原始错误：'));
+  return {
+    visible: (idx >= 0 ? lines.slice(0, idx) : lines).join('\n').trim(),
+    raw: idx >= 0 ? lines.slice(idx).join('\n').trim() : '',
+  };
+}
+function browserClientPromptHtml(prefix, message) {
+  const { visible, raw } = browserClientPromptLines(message);
+  const title = raw ? ` title="${attrEsc(raw)}"` : '';
+  return `<span style="color:var(--red);white-space:pre-line;"${title}>${esc(prefix)}${esc(visible)}</span>`;
+}
+
+// ---------- 代理分组（注册页 / 账号页共用） ----------
+// 配置页「代理池」里维护多分组（默认分组 + KN / IN / JP …）；
+// 注册、查活、查套餐、2FA、换绑都可以指定本次任务走哪个分组，优先级高于全局代理配置。
+// 选择结果缓存在 localStorage，下次进入沿用。
+const PROXY_GROUP_LS_KEY = 'wb.proxyGroupSelection.v1';
+const PROXY_GROUP_STATE = {
+  loaded: false,
+  loading: false,
+  defaultGroup: '默认',
+  groups: [],
+  selection: { reg: '', live: '', plan: [], totp: '', email: '' },
+};
+function proxyGroupNames() {
+  return (PROXY_GROUP_STATE.groups || []).map(g => g.name);
+}
+function proxyGroupByName(name) {
+  const key = String(name || '').trim();
+  return (PROXY_GROUP_STATE.groups || []).find(g => g.name === key) || null;
+}
+function proxyGroupIsDefault(name) {
+  const key = String(name || '').trim();
+  return !key || key === PROXY_GROUP_STATE.defaultGroup;
+}
+function restoreProxyGroupSelection() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PROXY_GROUP_LS_KEY) || '{}') || {};
+    const names = proxyGroupNames();
+    const single = (v) => (v && (names.includes(v) || v === PROXY_GROUP_STATE.defaultGroup) ? v : '');
+    const multi = (v) => (Array.isArray(v) ? v.filter(x => names.includes(x)) : []);
+    PROXY_GROUP_STATE.selection = {
+      reg: single(raw.reg),
+      live: single(raw.live),
+      plan: multi(raw.plan),
+      totp: single(raw.totp),
+      email: single(raw.email),
+    };
+  } catch (e) { /* 本地缓存损坏时按未选择处理 */ }
+}
+function saveProxyGroupSelection() {
+  try { localStorage.setItem(PROXY_GROUP_LS_KEY, JSON.stringify(PROXY_GROUP_STATE.selection)); } catch (e) {}
+}
+async function loadProxyGroups(force = false) {
+  if (PROXY_GROUP_STATE.loading) return PROXY_GROUP_STATE;
+  if (PROXY_GROUP_STATE.loaded && !force) { renderProxyGroupMenus(); return PROXY_GROUP_STATE; }
+  PROXY_GROUP_STATE.loading = true;
+  try {
+    const r = await api('/api/proxy/groups');
+    PROXY_GROUP_STATE.defaultGroup = r.default_group || '默认';
+    PROXY_GROUP_STATE.groups = Array.isArray(r.groups) ? r.groups : [];
+    PROXY_GROUP_STATE.loaded = true;
+    restoreProxyGroupSelection();
+  } catch (e) {
+    PROXY_GROUP_STATE.loaded = true;   // 失败也标记，避免每次渲染都打接口
+  } finally {
+    PROXY_GROUP_STATE.loading = false;
+  }
+  renderProxyGroupMenus();
+  return PROXY_GROUP_STATE;
+}
+function proxyGroupSelectionOf(key) {
+  const sel = PROXY_GROUP_STATE.selection || {};
+  return key === 'plan' ? (sel.plan || []) : (sel[key] || '');
+}
+function proxyGroupDesc(key) {
+  const multi = key === 'plan';
+  const value = proxyGroupSelectionOf(key);
+  const def = PROXY_GROUP_STATE.defaultGroup || '默认';
+  if (multi) return value.length ? `代理分组：${value.join('、')}（每个分组各查一次）` : `代理分组：${def}（默认分组）`;
+  return proxyGroupIsDefault(value) ? `代理分组：${def}（默认分组）` : `代理分组：${value}`;
+}
+function proxyGroupRequestFields(key) {
+  const multi = key === 'plan';
+  const value = proxyGroupSelectionOf(key);
+  if (multi) return value.length ? { proxy_groups: value.slice() } : {};
+  return proxyGroupIsDefault(value) ? {} : { proxy_group: value };
+}
+function renderProxyGroupMenus() {
+  document.querySelectorAll('[data-pg-key]').forEach((box) => {
+    const key = box.dataset.pgKey;
+    const multi = box.hasAttribute('data-pg-multi');
+    const menu = box.querySelector('.wb-dd-menu');
+    if (!menu) return;
+    const current = proxyGroupSelectionOf(key);
+    const isActive = multi ? current.length > 0 : !proxyGroupIsDefault(current);
+    box.classList.toggle('is-active', isActive);
+    const defaultOn = multi ? current.length === 0 : !current;
+    const defName = PROXY_GROUP_STATE.defaultGroup || '默认';
+    const items = [];
+    items.push(`
+      <button type="button" class="wb-dd-item${defaultOn ? ' is-active' : ''}" data-pg-item="${esc(key)}" data-pg-value="" title="${attrEsc(`不指定分组 = 走默认分组「${defName}」`)}">
+        <span class="wb-dd-item-mark">${defaultOn ? '✓' : ''}</span>
+        <span>默认（${esc(defName)} 分组）</span>
+      </button>
+    `);
+    if (PROXY_GROUP_STATE.groups.length) {
+      items.push('<div class="wb-dd-menu-title">代理分组</div>');
+    }
+    PROXY_GROUP_STATE.groups.forEach((g) => {
+      const on = multi ? current.includes(g.name) : current === g.name;
+      const count = (g.proxies || []).length;
+      const isDefault = g.is_default || g.name === PROXY_GROUP_STATE.defaultGroup;
+      items.push(`
+        <button type="button" class="wb-dd-item${on ? ' is-active' : ''}" data-pg-item="${esc(key)}" data-pg-value="${attrEsc(g.name)}" title="${attrEsc(`${g.name}｜${count} 个代理${isDefault ? '（默认分组）' : ''}`)}">
+          <span class="wb-dd-item-mark">${on ? '✓' : ''}</span>
+          <span>${esc(g.name)}${isDefault ? '（默认）' : ''}</span>
+          <span class="wb-dd-item-sub">${count}</span>
+        </button>
+      `);
+    });
+    menu.innerHTML = items.join('');
+    // 下拉收起时 ▾ 按钮只显示图标，不显示当前分组名（当前选中项在菜单里以 ✓ 标出）。
+    const caret = box.querySelector('.wb-dd-caret');
+    if (caret) caret.textContent = '▾';
+  });
+}
+function setProxyGroupSelection(key, value) {
+  const sel = PROXY_GROUP_STATE.selection;
+  const name = String(value || '').trim();
+  if (key === 'plan') {
+    if (!name) { sel.plan = []; saveProxyGroupSelection(); renderProxyGroupMenus(); return; }
+    const list = Array.isArray(sel.plan) ? sel.plan.slice() : [];
+    const idx = list.indexOf(name);
+    if (idx >= 0) list.splice(idx, 1);
+    else list.push(name);
+    sel.plan = list;
+  } else {
+    // 再点一次已选中的分组 = 取消选择，回到全局代理配置。
+    sel[key] = sel[key] === name ? '' : name;
+  }
+  saveProxyGroupSelection();
+  renderProxyGroupMenus();
+}
+function closeProxyGroupMenus(exceptId) {
+  document.querySelectorAll('.wb-dd-menu').forEach((m) => {
+    if (exceptId && m.id === exceptId) return;
+    m.classList.add('hidden');
+    const box = m.parentElement;
+    if (box) box.classList.remove('is-open');
+  });
+}
+function proxyGroupMenuOf(target) {
+  // 兼容两种写法：data-pg-toggle 直接给菜单 id，或给任意触发按钮。
+  // —— 旧写法给到 .wb-dd-btn 容器上时，会把 hidden 加到整个按钮上导致按钮消失。
+  const el = typeof target === 'string' ? document.getElementById(target) : target;
+  if (!el) return null;
+  if (el.classList.contains('wb-dd-menu')) return el;
+  const box = el.closest('.wb-dd-btn') || el.parentElement;
+  return box ? box.querySelector('.wb-dd-menu') : null;
+}
+function toggleProxyGroupMenu(target) {
+  const menu = proxyGroupMenuOf(target);
+  if (!menu) return;
+  const willShow = menu.classList.contains('hidden');
+  closeProxyGroupMenus(menu.id);
+  menu.classList.toggle('hidden', !willShow);
+  const box = menu.closest('.wb-dd-btn') || menu.parentElement;
+  if (box) box.classList.toggle('is-open', willShow);
+  renderProxyGroupMenus();
+}
+(function bindProxyGroupDropdowns() {
+  if (window.__wbProxyGroupBound) return;
+  window.__wbProxyGroupBound = true;
+  document.addEventListener('click', (e) => {
+    const toggle = e.target.closest('[data-pg-toggle]');
+    if (toggle) {
+      e.preventDefault();
+      e.stopPropagation();
+      loadProxyGroups().then(() => toggleProxyGroupMenu(toggle));
+      return;
+    }
+    const item = e.target.closest('[data-pg-item]');
+    if (item) {
+      e.preventDefault();
+      e.stopPropagation();
+      setProxyGroupSelection(item.dataset.pgItem, item.dataset.pgValue || '');
+      return;
+    }
+    if (!e.target.closest('.wb-dd-menu')) closeProxyGroupMenus();
+  });
+})();
+
+// ---------- 配置页：代理池分组管理 ----------
+// 数据源统一走 /api/proxy/groups（默认分组 + 命名分组）：比从 CONFIG 里拼更可靠，
+// 保存也走 /api/proxy/groups，写 .env 后热加载，不用重启。
+let PROXY_GROUP_DRAFT = null;          // [{name, is_default, text}]
+let PROXY_GROUP_DEFAULT_NAME = '默认';
+let PROXY_GROUP_SELECTED = '';         // 内联 Menu / 编辑弹框当前选中的分组名
+let PROXY_GROUP_TEST_RESULTS = {};     // {rawProxy: {ok, text}}
+let PROXY_GROUP_DRAFT_ERROR = '';
+let PROXY_GROUP_BATCH_TIMER = null;
+
+// 「未指定分组」的保留写法（大小写不敏感），必须与 config/proxy.py 的
+// _DEFAULT_GROUP_ALIASES 保持一致。后端 normalize_group_name() 会把它们强行
+// 改写成默认分组名，所以不能拿来当命名分组——否则新建的分组一保存就被吞掉。
+// 注意：这里**不能**放「默认」「默认分组」这类词，用户完全可以把某个分组真的
+// 命名为「默认」（重名由下面的草稿查重拦住）。空串由「请填写新分组名」拦下。
+const PgmReservedNames = new Set(['-', '*', 'default']);
+const PGM_GROUP_NAME_MAX = 40;   // 后端 normalize_group_name() 会截断到 40 字
+
+function pgmEsc(v) { return esc(v); }
+function pgmMaskProxy(value) {
+  // 只隐藏密码部分：用户名:密码@host:port → 用户名:***@host:port
+  const raw = String(value || '');
+  if (raw.includes('@')) {
+    const at = raw.lastIndexOf('@');
+    const head = raw.slice(0, at);
+    const tail = raw.slice(at);
+    const scheme = head.includes('://') ? head.split('://')[0] + '://' : '';
+    const cred = head.slice(scheme.length);
+    const user = cred.split(':')[0] || '';
+    return `${scheme}${user}:***${tail}`;
+  }
+  const parts = raw.split(':');
+  if (parts.length >= 4) return `${parts[0]}:${parts[1]}:${parts[2]}:***`;
+  return raw;
+}
+function pgmGroupLines(name) {
+  const g = (PROXY_GROUP_DRAFT || []).find(x => x.name === name);
+  if (!g) return [];
+  return String(g.text || '').split('\n').map(s => s.trim()).filter(Boolean);
+}
+function proxyGroupSelectedName() {
+  const groups = PROXY_GROUP_DRAFT || [];
+  if (!groups.length) return '';
+  if (groups.some(g => g.name === PROXY_GROUP_SELECTED)) return PROXY_GROUP_SELECTED;
+  const def = groups.find(g => g.is_default) || groups[0];
+  PROXY_GROUP_SELECTED = def.name;
+  return def.name;
+}
+function pgmMenuHtml() {
+  const sel = proxyGroupSelectedName();
+  return (PROXY_GROUP_DRAFT || []).map((g) => `
+    <button type="button" class="pgm-menu-item${g.name === sel ? ' is-active' : ''}" data-pgm-menu="${attrEsc(g.name)}" title="${attrEsc(`${g.name}${g.is_default ? '（默认分组）' : ''} · ${pgmGroupLines(g.name).length} 个代理`)}">
+      <span class="pgm-menu-name">${esc(g.name)}${g.is_default ? '<span class="pgm-menu-badge">默认</span>' : ''}</span>
+      <span class="pgm-menu-count">${pgmGroupLines(g.name).length}</span>
+    </button>`).join('');
+}
+// ---- 虚拟滚动列表：分组代理可能有上百个，只渲染可视窗口内的行，避免把页面撑高 ----
+const PGM_ROW_H = 26;          // 单行高度（与 CSS 的 .pgm-row 保持一致）
+const PGM_LIST_H = 182;        // 内联列表可视高度（约 7 行）
+const PGM_EDIT_LIST_H = 156;   // 编辑弹框列表在容器高度读不到时的兜底可视高度
+let PGM_EDIT_TAB = 'list';     // 编辑弹框当前视图：list（代理列表）/ text（编辑原文）
+const PGM_V_OVERSCAN = 3;
+function pgmVRowHtml(raw) {
+  const result = PROXY_GROUP_TEST_RESULTS[raw];
+  const cls = result ? (result.ok ? ' is-ok' : ' is-fail') : '';
+  const text = result ? result.text : '未测试';
+  return `
+    <div class="pgm-row" data-pgm-proxy="${attrEsc(raw)}">
+      <span class="pgm-row-proxy" title="${attrEsc(raw)}">${esc(pgmMaskProxy(raw))}</span>
+      <span class="pgm-row-result${cls}" title="${attrEsc(text)}">${esc(text)}</span>
+      <span class="pgm-row-op"><button type="button" class="pgm-mini" data-pgm-test-one="1">测试</button></span>
+    </div>`;
+}
+function pgmVListHtml(hostId, groupName, height) {
+  const lines = pgmGroupLines(groupName);
+  if (!lines.length) {
+    return `<div class="pgm-empty">分组「${esc(groupName)}」还没有代理，点「编辑原文」或「智能识别添加」加进来</div>`;
+  }
+  // height 传 'fill' 表示高度由外层 flex 容器决定（编辑弹框）；数字则是固定高度（配置页内联卡片）。
+  const fill = height === 'fill';
+  const fallback = fill ? PGM_EDIT_LIST_H : (Number(height) || PGM_LIST_H);
+  const style = fill ? 'height:100%' : `height:${fallback}px`;
+  return `<div class="pgm-vlist" id="${hostId}" data-pgm-vlist="${attrEsc(groupName)}" data-pgm-vh="${fallback}" style="${style}">
+      <div class="pgm-vinner"><div class="pgm-vrows"></div></div>
+    </div>`;
+}
+function pgmVListRender(host) {
+  if (typeof host === 'string') host = document.getElementById(host);
+  if (!host) return;
+  const lines = pgmGroupLines(host.dataset.pgmVlist);
+  const inner = host.querySelector('.pgm-vinner');
+  const rows = host.querySelector('.pgm-vrows');
+  if (!inner || !rows) return;
+  if (!lines.length) { inner.style.height = '0px'; rows.innerHTML = ''; return; }
+  inner.style.height = (lines.length * PGM_ROW_H) + 'px';
+  const viewH = host.clientHeight || Number(host.dataset.pgmVh) || PGM_LIST_H;
+  const start = Math.max(0, Math.floor(host.scrollTop / PGM_ROW_H) - PGM_V_OVERSCAN);
+  const count = Math.ceil(viewH / PGM_ROW_H) + PGM_V_OVERSCAN * 2;
+  const end = Math.min(lines.length, start + count);
+  rows.style.transform = `translateY(${start * PGM_ROW_H}px)`;
+  rows.innerHTML = lines.slice(start, end).map(pgmVRowHtml).join('');
+}
+function pgmVListRenderAll() {
+  document.querySelectorAll('[data-pgm-vlist]').forEach((host) => pgmVListRender(host));
+}
+(function bindPgmVListScroll() {
+  if (window.__wbPgmVScrollBound) return;
+  window.__wbPgmVScrollBound = true;
+  // scroll 不冒泡，但捕获阶段能拿到，这样列表重建后也不用重新绑定。
+  document.addEventListener('scroll', (e) => {
+    const host = e.target && e.target.closest ? e.target.closest('[data-pgm-vlist]') : null;
+    if (host) pgmVListRender(host);
+  }, true);
+  // 窗口尺寸变化 → 可视高度变了 → 虚拟窗口渲染的行数要跟着重算（一帧内只做一次）。
+  let resizeRaf = 0;
+  window.addEventListener('resize', () => {
+    if (resizeRaf) return;
+    resizeRaf = requestAnimationFrame(() => { resizeRaf = 0; pgmVListRenderAll(); });
+  });
+})();
+function pgmTableHtml(groupName) {
+  return pgmVListHtml('pgmVListInlineV2', groupName, PGM_LIST_H);
+}
+function pgmParsedListHtml(groupName) {
+  // 弹框里列表由 flex 撑满（'fill'），不再写死高度——否则两个 Tab 的高度对不上。
+  return pgmVListHtml('pgmVListEditV2', groupName, 'fill');
+}
+function proxyGroupManagerHtml() {
+  if (PROXY_GROUP_DRAFT === null) {
+    return `
+      <div class="pgm-box pgm-box-field" id="proxyGroupManagerV2">
+        <div class="pgm-title">代理池分组</div>
+        <div class="pgm-status">${PROXY_GROUP_DRAFT_ERROR ? `加载失败：${esc(PROXY_GROUP_DRAFT_ERROR)}` : '正在读取代理分组…'}</div>
+      </div>`;
+  }
+  const sel = proxyGroupSelectedName();
+  const cur = (PROXY_GROUP_DRAFT || []).find(g => g.name === sel) || {};
+  const total = (PROXY_GROUP_DRAFT || []).reduce((n, g) => n + pgmGroupLines(g.name).length, 0);
+  return `
+    <div class="pgm-box pgm-box-field" id="proxyGroupManagerV2">
+      <div class="pgm-head">
+        <div class="pgm-head-main">
+          <div class="pgm-title">代理池分组<span class="pgm-head-meta">${(PROXY_GROUP_DRAFT || []).length} 组 / ${total} 个代理 · 默认分组 <b>${esc(PROXY_GROUP_DEFAULT_NAME)}</b></span></div>
+        </div>
+        <div class="action-cell">
+          <button type="button" class="btn" id="btnPgmReload">重新加载</button>
+          <button type="button" class="btn primary" id="btnPgmOpenEdit">编辑</button>
+        </div>
+      </div>
+      <div class="pgm-view">
+        <div class="pgm-menu" id="pgmMenuV2">${pgmMenuHtml()}</div>
+        <div class="pgm-table-wrap">
+          <div class="pgm-table-head">
+            <span class="pgm-table-head-name" title="当前查看的分组">分组 <b>${esc(sel)}</b>${cur.is_default ? '<span class="pgm-menu-badge">默认</span>' : ''} · ${pgmGroupLines(sel).length} 个代理</span>
+            <span class="pgm-head-ops">${cur.is_default ? '' : `<button type="button" class="pgm-mini" data-pgm-set-default="${attrEsc(sel)}" title="把「${attrEsc(sel)}」设为默认分组：未指定分组的任务都走它（需要点「保存分组」生效）">设为默认</button>`}<button type="button" class="pgm-mini" data-pgm-test-all="${attrEsc(sel)}" title="逐行用该行自己的代理去请求出口信息接口">一键测试</button></span>
+          </div>
+          ${pgmTableHtml(sel)}
+        </div>
+      </div>
+      <div class="pgm-status" id="pgmStatusV2"></div>
+    </div>
+  `;
+}
+function setPgmStatus(text, kind) {
+  // 内联面板和编辑弹框各有一个状态条，两处同步显示同一消息。
+  ['pgmStatusV2', 'pgmEditStatusV2'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text || '';
+    el.classList.toggle('is-ok', kind === 'ok');
+    el.classList.toggle('is-fail', kind === 'fail');
+  });
+}
+function setPgmSmartStatus(text, kind) {
+  const el = document.getElementById('pgmSmartStatusV2');
+  if (!el) return;
+  el.textContent = text || '';
+  el.classList.toggle('is-ok', kind === 'ok');
+  el.classList.toggle('is-fail', kind === 'fail');
+}
+// 分组草稿 → 隐藏字段镜像：这样通用「保存」按钮也不会把代理配置清掉。
+function syncProxyGroupHiddenInputs() {
+  // 草稿还没加载完就不要建隐藏字段：通用「保存」会读到空值把 .env 里的代理清掉。
+  if (!Array.isArray(PROXY_GROUP_DRAFT)) return;
+  const host = document.getElementById('proxyGroupManagerV2');
+  if (!host) return;
+  let poolInput = host.querySelector('input[data-key="PROXY_POOL"]');
+  let groupsInput = host.querySelector('input[data-key="PROXY_GROUPS"]');
+  let defaultInput = host.querySelector('input[data-key="DEFAULT_PROXY_GROUP"]');
+  if (!poolInput) {
+    poolInput = document.createElement('input');
+    poolInput.type = 'hidden';
+    poolInput.dataset.key = 'PROXY_POOL';
+    host.appendChild(poolInput);
+  }
+  if (!groupsInput) {
+    groupsInput = document.createElement('input');
+    groupsInput.type = 'hidden';
+    groupsInput.dataset.key = 'PROXY_GROUPS';
+    host.appendChild(groupsInput);
+  }
+  if (!defaultInput) {
+    defaultInput = document.createElement('input');
+    defaultInput.type = 'hidden';
+    defaultInput.dataset.key = 'DEFAULT_PROXY_GROUP';
+    host.appendChild(defaultInput);
+  }
+  const groups = PROXY_GROUP_DRAFT || [];
+  const def = groups.find(g => g.is_default);
+  poolInput.value = def ? pgmGroupLines(def.name).join('\n') : '';
+  defaultInput.value = def ? def.name : PROXY_GROUP_DEFAULT_NAME;
+  const lines = [];
+  groups.filter(g => !g.is_default).forEach((g) => {
+    lines.push(`${g.name}:`);
+    pgmGroupLines(g.name).forEach(p => lines.push(p));
+    lines.push('');
+  });
+  groupsInput.value = lines.join('\n').trim();
+}
+function renderProxyGroupManager(bind = true) {
+  const host = document.getElementById('proxyGroupManagerV2');
+  if (host) {
+    const scroll = host.querySelector('[data-pgm-vlist]');
+    const scrollTop = scroll ? scroll.scrollTop : 0;
+    host.outerHTML = proxyGroupManagerHtml();
+    if (bind) bindProxyGroupManager();
+    const next = document.getElementById('pgmVListInlineV2');
+    if (next && scrollTop) next.scrollTop = scrollTop;
+  }
+  syncProxyGroupHiddenInputs();
+  pgmVListRender('pgmVListInlineV2');
+  renderPgmEditModal();
+}
+// ---------- 代理分组编辑弹框 ----------
+function switchPgmEditTab(tab, opts) {
+  PGM_EDIT_TAB = tab === 'text' ? 'text' : 'list';
+  const panel = document.getElementById('pgmEditPanel');
+  if (!panel) return;
+  panel.querySelectorAll('.pgm-tab').forEach((btn) => {
+    const on = btn.dataset.pgmTab === PGM_EDIT_TAB;
+    btn.classList.toggle('is-active', on);
+    btn.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  panel.querySelectorAll('[data-pgm-pane]').forEach((pane) => {
+    pane.classList.toggle('hidden', pane.dataset.pgmPane !== PGM_EDIT_TAB);
+  });
+  if (PGM_EDIT_TAB === 'list') {
+    // 切回列表时容器才有真实高度，必须重算虚拟窗口的行数。
+    pgmVListRender('pgmVListEditV2');
+  } else if (opts && opts.focus) {
+    const ta = document.getElementById('pgmGroupTextV2');
+    if (ta) ta.focus();
+  }
+}
+function renderPgmEditModal() {
+  const panel = document.getElementById('pgmEditPanel');
+  if (!panel) return;
+  const menu = document.getElementById('pgmEditMenuV2');
+  if (menu) menu.innerHTML = pgmMenuHtml();
+  const name = proxyGroupSelectedName();
+  if (!name) return;
+  const g = (PROXY_GROUP_DRAFT || []).find(x => x.name === name);
+  const nameEl = document.getElementById('pgmEditGroupName');
+  if (nameEl) nameEl.innerHTML = `${esc(name)}${g && g.is_default ? '<span class="pgm-menu-badge">默认</span>' : ''}`;
+  const countEl = document.getElementById('pgmEditGroupCount');
+  if (countEl) countEl.textContent = `${pgmGroupLines(name).length} 个代理`;
+  const setDefBtn = panel.querySelector('[data-pgm-set-default-edit]');
+  if (setDefBtn) {
+    setDefBtn.classList.toggle('hidden', !!(g && g.is_default));
+    setDefBtn.title = `把「${name}」设为默认分组：未指定分组的任务都走它（需要点「保存分组」生效）`;
+  }
+  const removeBtn = panel.querySelector('[data-pgm-remove-edit]');
+  if (removeBtn) {
+    removeBtn.classList.toggle('hidden', !!(g && g.is_default));
+    removeBtn.title = g && g.is_default
+      ? '默认分组不能删除：先把别的分组「设为默认」再来删除'
+      : `删除分组「${name}」（点「保存分组」后生效）`;
+  }
+  const ta = document.getElementById('pgmGroupTextV2');
+  if (ta) {
+    // 正在输入时不要回写，否则光标会跳。
+    if (document.activeElement !== ta) ta.value = (g && g.text) || '';
+    ta.dataset.pgmText = name;
+  }
+  const parsed = document.getElementById('pgmEditParsedV2');
+  if (parsed) parsed.innerHTML = pgmParsedListHtml(name);
+
+  // 顶部/左栏的计数：一眼能看出改了多少组、多少代理。
+  const groups = PROXY_GROUP_DRAFT || [];
+  const total = groups.reduce((n, x) => n + pgmGroupLines(x.name).length, 0);
+  const metaEl = document.getElementById('pgmDlgMeta');
+  if (metaEl) metaEl.textContent = `${groups.length} 组 · ${total} 个代理`;
+  const sideEl = document.getElementById('pgmSideCount');
+  if (sideEl) sideEl.textContent = `(${groups.length})`;
+  const tabCountEl = document.getElementById('pgmTabCountV2');
+  if (tabCountEl) tabCountEl.textContent = String(pgmGroupLines(name).length);
+
+  // 应用的 Tab 会顺带重算虚拟列表（容器此时才有真实高度）。
+  switchPgmEditTab(PGM_EDIT_TAB);
+}
+function openPgmEditModal() {
+  const panel = document.getElementById('pgmEditPanel');
+  if (!panel) return;
+  // 先显示再渲染：虚拟滚动要读容器真实高度，藏在 .hidden 里读到的 clientHeight 是 0。
+  panel.classList.remove('hidden');
+  renderPgmEditModal();
+  updateModalScrollLock();
+}
+function closePgmEditModal() {
+  const panel = document.getElementById('pgmEditPanel');
+  if (!panel) return;
+  panel.classList.add('hidden');
+  updateModalScrollLock();
+}
+function bindPgmEditPanel() {
+  const panel = document.getElementById('pgmEditPanel');
+  if (!panel || panel.dataset.pgmBound === '1') return;
+  panel.dataset.pgmBound = '1';
+  const closeBtn = document.getElementById('btnClosePgmEdit');
+  if (closeBtn) closeBtn.addEventListener('click', closePgmEditModal);
+  const cancelBtn = document.getElementById('btnCancelPgmEdit');
+  if (cancelBtn) cancelBtn.addEventListener('click', closePgmEditModal);
+  // 折叠「智能识别添加」会改变列表的可用高度，展开/收起后要重算虚拟窗口行数。
+  const smartBox = document.getElementById('pgmSmartBoxV2');
+  if (smartBox) smartBox.addEventListener('toggle', () => pgmVListRender('pgmVListEditV2'));
+  panel.addEventListener('click', async (e) => {
+    const item = e.target.closest('[data-pgm-menu]');
+    if (item) {
+      PROXY_GROUP_SELECTED = item.dataset.pgmMenu;
+      renderProxyGroupManager();
+      return;
+    }
+    const tabBtn = e.target.closest('[data-pgm-tab]');
+    if (tabBtn) { switchPgmEditTab(tabBtn.dataset.pgmTab, { focus: true }); return; }
+    const addGroup = e.target.closest('#btnPgmAddGroup');
+    if (addGroup) {
+      const input = document.getElementById('pgmNewGroupNameV2');
+      const name = String((input && input.value) || '').trim();
+      // 校验结果统一写底栏状态（智能识别区是折叠的，写那里用户看不到）。
+      if (!name) { setPgmStatus('请先填写新分组名', 'fail'); return; }
+      if (name.length > PGM_GROUP_NAME_MAX) {
+        setPgmStatus(`分组名过长（最多 ${PGM_GROUP_NAME_MAX} 个字符），保存时会被截断，请换短一些的名字`, 'fail');
+        return;
+      }
+      if (PgmReservedNames.has(name.toLowerCase())) {
+        setPgmStatus(`「${name}」是"未指定分组"的保留写法，请换一个名字`, 'fail');
+        return;
+      }
+      if ((PROXY_GROUP_DRAFT || []).some(g => g.name === name)) { setPgmStatus(`分组「${name}」已存在`, 'fail'); return; }
+      PROXY_GROUP_DRAFT.push({ name, is_default: false, text: '' });
+      PROXY_GROUP_SELECTED = name;
+      if (input) input.value = '';
+      renderProxyGroupManager();
+      setPgmStatus(`分组「${name}」已创建，添加代理后点「保存分组」生效`, 'ok');
+      return;
+    }
+    const setDefEdit = e.target.closest('[data-pgm-set-default-edit]');
+    if (setDefEdit) { pgmSetDefault(proxyGroupSelectedName()); return; }
+    const clearBtn = e.target.closest('[data-pgm-clear-edit]');
+    if (clearBtn) {
+      const name = proxyGroupSelectedName();
+      if (name && confirm(`清空分组「${name}」的 ${pgmGroupLines(name).length} 个代理？\n\n清空后还需要点「保存分组」才会生效。`)) {
+        const g = (PROXY_GROUP_DRAFT || []).find(x => x.name === name);
+        if (g) g.text = '';
+        renderProxyGroupManager();
+        setPgmStatus(`分组「${name}」已清空，记得点「保存分组」`, '');
+      }
+      return;
+    }
+    const removeBtn = e.target.closest('[data-pgm-remove-edit]');
+    if (removeBtn) { pgmRemoveGroup(proxyGroupSelectedName()); return; }
+    const testAllEdit = e.target.closest('[data-pgm-test-all-edit]');
+    if (testAllEdit) { await pgmTestAll(proxyGroupSelectedName(), testAllEdit); return; }
+    const testOne = e.target.closest('[data-pgm-test-one]');
+    if (testOne) {
+      const row = testOne.closest('[data-pgm-proxy]');
+      const raw = row ? row.dataset.pgmProxy : '';
+      if (raw) await pgmTestOne(raw, testOne);
+      return;
+    }
+    const addBtn = e.target.closest('#btnPgmParseAdd');
+    if (addBtn) { await pgmParseSmart(addBtn, true); return; }
+    const previewBtn = e.target.closest('#btnPgmParsePreview');
+    if (previewBtn) { await pgmParseSmart(previewBtn, false); return; }
+    const save = e.target.closest('#btnPgmSave');
+    if (save) { await saveProxyGroupDraft(save); return; }
+  });
+  panel.addEventListener('input', (e) => {
+    const ta = e.target.closest('#pgmGroupTextV2');
+    if (!ta) return;
+    const name = proxyGroupSelectedName();
+    const g = (PROXY_GROUP_DRAFT || []).find(x => x.name === name);
+    if (g) g.text = ta.value;
+    syncProxyGroupHiddenInputs();
+    // 菜单计数 + 解析行列表跟随刷新（不动 textarea 本身，避免丢焦点/光标）。
+    const menu = document.getElementById('pgmEditMenuV2');
+    if (menu) menu.innerHTML = pgmMenuHtml();
+    const countEl = document.getElementById('pgmEditGroupCount');
+    if (countEl) countEl.textContent = `${pgmGroupLines(name).length} 个代理`;
+    const parsed = document.getElementById('pgmEditParsedV2');
+    if (parsed) {
+      parsed.innerHTML = pgmParsedListHtml(name);
+      pgmVListRender('pgmVListEditV2');
+    }
+    const inlineMenu = document.getElementById('pgmMenuV2');
+    if (inlineMenu) inlineMenu.innerHTML = pgmMenuHtml();
+  });
+}
+async function loadProxyGroupDraft(force = false) {
+  if (PROXY_GROUP_DRAFT && !force) { syncProxyGroupHiddenInputs(); return; }
+  try {
+    const r = await api('/api/proxy/groups');
+    PROXY_GROUP_DEFAULT_NAME = r.default_group || '默认';
+    PROXY_GROUP_DRAFT = (r.groups || []).map(g => ({
+      name: g.name,
+      is_default: !!g.is_default,
+      text: (g.proxies || []).join('\n'),
+    }));
+    if (!PROXY_GROUP_DRAFT.length) {
+      PROXY_GROUP_DRAFT = [{ name: PROXY_GROUP_DEFAULT_NAME, is_default: true, text: '' }];
+    }
+    PROXY_GROUP_DRAFT_ERROR = '';
+  } catch (e) {
+    // 读取失败保持草稿为 null：不渲染可编辑分组，也不写隐藏字段，避免误清空 .env。
+    PROXY_GROUP_DRAFT = null;
+    PROXY_GROUP_DRAFT_ERROR = e.message;
+  }
+  PROXY_GROUP_TEST_RESULTS = {};
+  renderProxyGroupManager();
+}
+function pgmSelectedGroupName() {
+  // 智能识别的目标分组 = 弹框里当前选中的分组（Menu 高亮项）。
+  return proxyGroupSelectedName();
+}
+function pgmSetDefault(name) {
+  const groups = PROXY_GROUP_DRAFT || [];
+  const g = groups.find(x => x.name === name);
+  if (!g) return;
+  if (g.is_default) { setPgmStatus(`「${name}」已经是默认分组`, ''); return; }
+  groups.forEach((x) => { x.is_default = (x.name === name); });
+  PROXY_GROUP_DEFAULT_NAME = name;
+  renderProxyGroupManager();
+  setPgmStatus(`已把「${name}」设为默认分组，记得点「保存分组」生效（之后未指定分组的任务都会走它）`, '');
+}
+function pgmRemoveGroup(name) {
+  const g = (PROXY_GROUP_DRAFT || []).find(x => x.name === name);
+  if (!g) return;
+  if (g.is_default) {
+    setPgmStatus('默认分组不能删除：先把别的分组「设为默认」，再删除它', 'fail');
+    return;
+  }
+  if (!confirm(`删除分组「${name}」？\n\n点「保存分组」后从配置里移除；指定过该分组的任务会回退到默认分组。`)) return;
+  PROXY_GROUP_DRAFT = (PROXY_GROUP_DRAFT || []).filter(x => x.name !== name);
+  Object.keys(PROXY_GROUP_TEST_RESULTS).forEach((k) => {
+    if (!PROXY_GROUP_DRAFT.some(x => pgmGroupLines(x.name).includes(k))) delete PROXY_GROUP_TEST_RESULTS[k];
+  });
+  PROXY_GROUP_SELECTED = proxyGroupSelectedName();
+  renderProxyGroupManager();
+  setPgmStatus(`分组「${name}」已从草稿删除，记得点「保存分组」`, '');
+}
+function pgmEnsureGroup(name) {
+  const key = String(name || '').trim();
+  if (!key) return null;
+  let g = (PROXY_GROUP_DRAFT || []).find(x => x.name === key);
+  if (!g) {
+    g = { name: key, is_default: false, text: '' };
+    PROXY_GROUP_DRAFT.push(g);
+  }
+  return g;
+}
+function pgmAppendProxies(groupName, proxies) {
+  const g = pgmEnsureGroup(groupName);
+  if (!g) return 0;
+  const existing = new Set(pgmGroupLines(g.name));
+  let added = 0;
+  proxies.forEach((p) => {
+    const value = String(p || '').trim();
+    if (!value || existing.has(value)) return;
+    existing.add(value);
+    added += 1;
+  });
+  if (added) {
+    g.text = Array.from(existing).join('\n');
+  }
+  return added;
+}
+function bindProxyGroupManager() {
+  const host = document.getElementById('proxyGroupManagerV2');
+  if (!host || host.dataset.pgmBound === '1') return;
+  host.dataset.pgmBound = '1';
+  host.addEventListener('click', async (e) => {
+    const item = e.target.closest('[data-pgm-menu]');
+    if (item) {
+      PROXY_GROUP_SELECTED = item.dataset.pgmMenu;
+      renderProxyGroupManager();
+      return;
+    }
+    const openEdit = e.target.closest('#btnPgmOpenEdit');
+    if (openEdit) { openPgmEditModal(); return; }
+    const setDef = e.target.closest('[data-pgm-set-default]');
+    if (setDef) { pgmSetDefault(setDef.dataset.pgmSetDefault); return; }
+    const reload = e.target.closest('#btnPgmReload');
+    if (reload) { reload.disabled = true; await loadProxyGroupDraft(true); reload.disabled = false; setPgmStatus('已重新加载代理分组', 'ok'); return; }
+    const testOne = e.target.closest('[data-pgm-test-one]');
+    if (testOne) {
+      const row = testOne.closest('[data-pgm-proxy]');
+      const raw = row ? row.dataset.pgmProxy : '';
+      if (raw) await pgmTestOne(raw, testOne);
+      return;
+    }
+    const testAll = e.target.closest('[data-pgm-test-all]');
+    if (testAll) { await pgmTestAll(testAll.dataset.pgmTestAll, testAll); return; }
+  });
+}
+async function saveProxyGroupDraft(btn) {
+  if (btn) btn.disabled = true;
+  setPgmStatus('正在保存代理分组…');
+  const groups = {};
+  (PROXY_GROUP_DRAFT || []).forEach((g) => {
+    groups[g.name] = pgmGroupLines(g.name);
+  });
+  const defGroup = (PROXY_GROUP_DRAFT || []).find(g => g.is_default);
+  try {
+    const r = await api('/api/proxy/groups', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ groups, default_group: defGroup ? defGroup.name : '' }),
+    });
+    PROXY_GROUP_DEFAULT_NAME = r.default_group || PROXY_GROUP_DEFAULT_NAME;
+    PROXY_GROUP_DRAFT = (r.groups || []).map(g => ({
+      name: g.name, is_default: !!g.is_default, text: (g.proxies || []).join('\n'),
+    }));
+    renderProxyGroupManager();
+    setPgmStatus(r.note || '代理分组已保存', r.reloaded === false ? 'fail' : 'ok');
+    // 注册/账号页的分组下拉同步刷新
+    PROXY_GROUP_STATE.loaded = false;
+    loadProxyGroups(true);
+  } catch (e) {
+    setPgmStatus('保存失败：' + e.message, 'fail');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+async function pgmParseSmart(btn, apply) {
+  const rawEl = document.getElementById('pgmSmartRawV2');
+  const schemeEl = document.getElementById('pgmSmartSchemeV2');
+  const raw = (rawEl && rawEl.value || '').trim();
+  if (!raw) { setPgmSmartStatus('请先粘贴代理，一行一个', 'fail'); return; }
+  if (btn) btn.disabled = true;
+  setPgmSmartStatus('正在解析…');
+  try {
+    const r = await api('/api/proxy/parse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ raw, scheme: schemeEl ? schemeEl.value : 'http' }),
+    });
+    const proxies = r.proxies || [];
+    const invalid = r.invalid || [];
+    if (!apply) {
+      setPgmSmartStatus(`解析到 ${proxies.length} 个代理，无法识别 ${invalid.length} 行${invalid.length ? '：' + invalid.slice(0, 3).join(' ／ ') : ''}`, proxies.length ? 'ok' : 'fail');
+      return;
+    }
+    const target = pgmSelectedGroupName();
+    if (!target) { setPgmSmartStatus('请选择或填写目标分组', 'fail'); return; }
+    const added = pgmAppendProxies(target, proxies);
+    renderProxyGroupManager();
+    setPgmSmartStatus(`已添加 ${added} 个代理到分组「${target}」（重复跳过 ${proxies.length - added} 个）${invalid.length ? `，无法识别 ${invalid.length} 行` : ''}。记得点「保存分组」`, added ? 'ok' : '');
+  } catch (e) {
+    setPgmSmartStatus('解析失败：' + e.message, 'fail');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+function pgmFormatGeo(result) {
+  const geo = result.geo || {};
+  const where = [geo.country, geo.city].filter(Boolean).join(' ');
+  const parts = [`出口 ${geo.ip || '?'}`, where || geo.country_name || '', geo.org || ''].filter(Boolean);
+  return `${parts.join(' · ')}${result.elapsed_ms ? ` · ${result.elapsed_ms}ms` : ''}`;
+}
+function pgmApplyResultToRow(raw, result) {
+  // 内联虚拟列表和编辑弹框里的解析行都可能渲染同一个代理，全部刷新；
+  // 虚拟滚动外的行会在滚进可视区时按 PROXY_GROUP_TEST_RESULTS 重新渲染，不会丢结果。
+  const ok = !!result.ok;
+  const text = ok ? pgmFormatGeo(result) : `失败：${result.error || '未知原因'}`;
+  PROXY_GROUP_TEST_RESULTS[raw] = { ok, text };
+  document.querySelectorAll('.pgm-row[data-pgm-proxy]').forEach((row) => {
+    if (row.dataset.pgmProxy !== raw) return;
+    const el = row.querySelector('.pgm-row-result');
+    if (!el) return;
+    el.textContent = text;
+    el.title = text;
+    el.classList.toggle('is-ok', ok);
+    el.classList.toggle('is-fail', !ok);
+  });
+}
+async function pgmTestOne(raw, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '测试中'; }
+  try {
+    const r = await api('/api/proxy/test-one', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ proxy: raw }),
+    });
+    const result = r.result || {};
+    PROXY_GROUP_TEST_RESULTS[raw] = { ok: !!result.ok, text: result.ok ? pgmFormatGeo(result) : `失败：${result.error || '未知原因'}` };
+    pgmApplyResultToRow(raw, result);
+  } catch (e) {
+    const result = { ok: false, error: e.message };
+    PROXY_GROUP_TEST_RESULTS[raw] = { ok: false, text: `失败：${e.message}` };
+    pgmApplyResultToRow(raw, result);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '测试'; }
+  }
+}
+async function pgmTestAll(groupName, btn) {
+  const proxies = pgmGroupLines(groupName);
+  if (!proxies.length) { setPgmStatus(`分组「${groupName}」没有代理`, 'fail'); return; }
+  if (btn) btn.disabled = true;
+  setPgmStatus(`正在一键测试分组「${groupName}」的 ${proxies.length} 个代理…`);
+  try {
+    const r = await api('/api/proxy/batch-test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ proxies, label: groupName }),
+    });
+    if (!r.accepted) { setPgmStatus(r.error || '批量测试未启动', 'fail'); return; }
+    if (PROXY_GROUP_BATCH_TIMER) clearInterval(PROXY_GROUP_BATCH_TIMER);
+    PROXY_GROUP_BATCH_TIMER = setInterval(() => pgmPollBatch(groupName), 1200);
+    pgmPollBatch(groupName);
+  } catch (e) {
+    setPgmStatus('一键测试失败：' + e.message, 'fail');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+async function pgmPollBatch(groupName) {
+  try {
+    const r = await api('/api/proxy/batch-test-status');
+    (r.results || []).forEach((result) => {
+      const raw = result.proxy_raw || '';
+      if (!raw) return;
+      PROXY_GROUP_TEST_RESULTS[raw] = { ok: !!result.ok, text: result.ok ? pgmFormatGeo(result) : `失败：${result.error || '未知原因'}` };
+      pgmApplyResultToRow(raw, result);
+    });
+    const done = Number(r.done || 0);
+    const total = Number(r.total || 0);
+    if (r.running) {
+      setPgmStatus(`分组「${groupName}」测试中：${done}/${total}`);
+    } else {
+      if (PROXY_GROUP_BATCH_TIMER) { clearInterval(PROXY_GROUP_BATCH_TIMER); PROXY_GROUP_BATCH_TIMER = null; }
+      const okCount = (r.results || []).filter(x => x.ok).length;
+      setPgmStatus(`分组「${groupName}」测试完成：可用 ${okCount} / ${total}`, okCount === total && total > 0 ? 'ok' : '');
+    }
+  } catch (e) {
+    if (PROXY_GROUP_BATCH_TIMER) { clearInterval(PROXY_GROUP_BATCH_TIMER); PROXY_GROUP_BATCH_TIMER = null; }
+    setPgmStatus('读取测试进度失败：' + e.message, 'fail');
+  }
+}
+
 function configGroupSlug(name) {
   return 'cfg-' + String(name || '')
     .replace(/[^\w\u4e00-\u9fff]+/g, '-')
@@ -6067,7 +8008,7 @@ function configNavIcon(name) {
   if (n.includes('画像') || n.includes('指纹')) return '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>';
   if (n.includes('人工') || n.includes('节奏')) return '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>';
   if (n.includes('提链')) return '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>';
-  if (n.includes('Browser') || n.includes('Roxy') || n.includes('Skyvern') || n.includes('注册')) return '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>';
+  if (n.includes('Browser') || n.includes('Roxy') || n.includes('比特') || n.includes('Skyvern') || n.includes('注册')) return '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>';
   return '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>';
 }
 function getConfigGroupNames() {
@@ -6082,12 +8023,14 @@ function configSectionIntro(name) {
   if (name === 'CloakBrowser') return '本地指纹浏览器运行参数、语言时区与代理设置。';
   if (name === 'Browser Use') return 'Browser Use Cloud 远端浏览器与代理参数。';
   if (name === 'Skyvern') return 'Skyvern Browser Sessions 与代理参数。';
-  if (name === 'RoxyBrowser') return 'RoxyBrowser API、环境与代理相关设置。';
+  if (name === 'RoxyBrowser') return 'RoxyBrowser API、环境与代理相关设置。任务开始前请先启动并登录 RoxyBrowser 客户端。';
+  if (name === '比特浏览器') return '比特浏览器（BitBrowser）本地接口、窗口与代理相关设置。任务开始前请先启动并登录比特浏览器客户端。';
   if (name === 'Codex') return 'Codex 授权驱动、CPA 与 sub2api 相关设置。';
   if (name === '邮箱 / OTP') return '邮箱来源、OTP 等待与各邮箱服务商参数。';
   if (name === '接码平台') return '接码通道、国家代码与本地取号服务参数。';
   if (name === '人工节奏') return '注册流程中的随机停顿节奏。';
   if (name === '浏览器画像') return '浏览器语言、时区、出口 IP 画像与注册省流量设置。';
+  if (name === '风控 / 人工处理') return '页面被 Cloudflare 风控接管时，弹框提醒你手动处理，并定时复检页面是否恢复正常。';
   if (name === '代理池') return '代理列表与套餐/Agent 网络模式。';
   if (name === '提链') return '提链服务地址、CDK 与并发参数。';
   return '';
@@ -6132,8 +8075,9 @@ function renderConfigSectionHead(name, meta = '') {
 }
 function registrationDriverChoices() {
   return [
-    { value: 'protocol', label: '纯协议注册' },
+    { value: 'protocol', label: '纯协议（不建议）' },
     { value: 'roxy', label: 'RoxyBrowser' },
+    { value: 'bit', label: '比特浏览器' },
     { value: 'cloak', label: '本地指纹浏览器' },
     { value: 'browser_use', label: 'browser_use' },
     { value: 'skyvern', label: 'skyvern' },
@@ -6224,11 +8168,15 @@ function renderRegistrationDriverField(f) {
 function renderRegistrationSettingsSection(fields) {
   const driver = fields.find(f => f.key === 'REGISTRATION_DRIVER') || fields[0];
   const autoPlan = fields.find(f => f.key === 'AUTO_PLAN_CHECK_AFTER_REGISTER');
+  // 「人工介入超时时间」(MANUAL_OTP_TIMEOUT)：自动取码失败转手动输入验证码、
+  // 页面被 Cloudflare 风控接管需要手动处理，这两种人工介入共用这一个等待上限。
+  const manualTimeout = fields.find(f => f.key === 'MANUAL_OTP_TIMEOUT');
   return `
     <div class="config-section-v2-body config-section-v2-body--single">
       ${driver ? renderRegistrationDriverField(driver) : '<div class="banner warn">未找到注册方式配置项</div>'}
     </div>
     ${autoPlan ? `<div class="config-switches-v2" style="margin-top:14px;">${renderFeatureSwitchField(autoPlan, { withIcon: false })}</div>` : ''}
+    ${manualTimeout ? `<div class="config-section-v2-body config-section-v2-body--single" style="margin-top:14px;">${renderConfigPlainFieldV2(manualTimeout)}</div>` : ''}
   `;
 }
 function renderFeatureSwitchField(f, opts = {}) {
@@ -6275,6 +8223,11 @@ function renderConfigRecommendedLinks(f) {
   return `<div class="config-recommendations" role="note"><span class="config-recommendations-title">推荐家宽</span>${items}</div>`;
 }
 function renderConfigPlainFieldV2(f) {
+  // 「代理出口测试接口」字段位由「代理池分组」组件（Menu+Table+编辑弹框）替代；
+  // 该字段后端已标 render=hidden，测试接口本身仅在 .env（PROXY_TEST_GEO_URLS）维护。
+  if (f.key === 'PROXY_TEST_GEO_URLS') return proxyGroupManagerHtml();
+  // 其余隐藏字段（代理池分组）：由「代理池分组」组件维护，这里不单独出输入框。
+  if (f.render === 'hidden') return '';
   const fv = Object.prototype.hasOwnProperty.call(CONFIG_PENDING_UPDATES, f.key) ? CONFIG_PENDING_UPDATES[f.key] : f.value;
   let control = '';
   if (f.type === 'int') {
@@ -6305,6 +8258,7 @@ function renderMixedConfigSectionV2(name, fields, intro) {
   const slug = configGroupSlug(name);
   const switches = fields.filter(f => f.type === 'bool');
   const inputs = fields.filter(f => f.type !== 'bool');
+  // 「代理池分组」组件已改到 PROXY_TEST_GEO_URLS 字段位渲染（见 renderConfigPlainFieldV2）。
   const extra = name === 'RoxyBrowser' ? renderRoxyWorkspaceToolsV2() : '';
   return `
     <section class="config-section-v2" id="${esc(slug)}" data-config-section="${esc(name)}">
@@ -6645,6 +8599,9 @@ function renderConfigLayoutV2() {
   if (sectionMount) renderRegistrationEpSelect(sectionMount, 'configRegistrationSelectV2');
   bindRoxyWorkspaceToolsV2();
   bindCloudMailToolsV2();
+  bindProxyGroupManager();
+  bindPgmEditPanel();
+  syncProxyGroupHiddenInputs();
 }
 function scrollToConfigSection(slug) {
   const el = document.getElementById(slug);
@@ -6740,6 +8697,8 @@ async function loadConfig() {
     CONFIG = await api('/api/config');
     renderConfigLayoutV2();
     bindConfigLayoutV2();
+    // 代理分组单独走 /api/proxy/groups（默认分组 + 命名分组），渲染完配置区后异步补上。
+    await loadProxyGroupDraft(true);
   } catch(e) {
     showToast('加载配置失败: ' + e.message);
   }
@@ -6772,7 +8731,9 @@ async function loadRoxyWorkspaces() {
     if (saveBtn) saveBtn.disabled = !sel.value;
     status.innerHTML = `已获取 ${items.length} 个团队/项目，接口：<span class="mono">${esc(r.method || '')} ${esc(r.path || '')}</span>`;
   } catch(e) {
-    status.innerHTML = `<span style="color:var(--red);">获取失败：${esc(e.message)}</span>`;
+    status.innerHTML = browserClientPromptHtml('获取失败：', e.message);
+    // 「客户端没启动」这类长错误另外弹框说清楚，行内只留摘要。
+    if (isBrowserClientError(e.message)) openClientErrorDialog(e.message, {title: '获取 RoxyBrowser 团队/项目失败'});
   } finally {
     if (loadBtn) loadBtn.disabled = false;
   }
@@ -6859,8 +8820,552 @@ document.addEventListener('click', (e) => {
   copyText(copyStore.get(t.dataset.copyId));
 });
 
+// ---------- 手动输入验证码：全局弹框 + 浏览器提醒 ----------
+// 任何步骤（注册 / 查活 / 换绑…）自动取码失败时，后端会登记一条「等待人工输入」，
+// 这里轮询到后弹框提醒，提交的验证码会让对应任务立即继续。
+let MANUAL_OTP_ITEMS = [];
+let MANUAL_OTP_CURRENT = null;
+let MANUAL_OTP_TIMER = null;
+let MANUAL_OTP_TICK_TIMER = null;
+let MANUAL_OTP_TITLE_TIMER = null;
+const MANUAL_OTP_NOTIFIED = new Set();
+const MANUAL_OTP_DISMISSED = new Set();
+const MANUAL_OTP_BASE_TITLE = document.title;
+
+function manualOtpNotifySupported() { return typeof Notification !== 'undefined'; }
+
+function updateManualOtpNotifyBtn() {
+  const btn = $('#btnManualOtpNotify');
+  updateManualInterventionNotifyBtn();
+  if (!btn) return;
+  if (!manualOtpNotifySupported()) { btn.textContent = '浏览器不支持提醒'; btn.disabled = true; return; }
+  if (Notification.permission === 'granted') { btn.textContent = '浏览器提醒已开启'; btn.disabled = true; }
+  else if (Notification.permission === 'denied') { btn.textContent = '浏览器提醒已被禁用'; btn.disabled = true; }
+  else { btn.textContent = '开启浏览器提醒'; btn.disabled = false; }
+}
+
+async function requestManualOtpNotify() {
+  if (!manualOtpNotifySupported()) { showToast('当前浏览器不支持桌面提醒'); return; }
+  try { await Notification.requestPermission(); } catch (e) { /* 需要用户手势，忽略 */ }
+  updateManualOtpNotifyBtn();
+  showToast(Notification.permission === 'granted'
+    ? '已开启浏览器提醒：有新验证码需要输入时会通知你'
+    : '未开启浏览器提醒（可稍后在浏览器地址栏权限里打开）');
+}
+
+function notifyManualOtp(item) {
+  if (!manualOtpNotifySupported() || Notification.permission !== 'granted') return;
+  try {
+    const lines = [item.purpose || '邮箱验证码', item.email || ''];
+    if (item.code_url) lines.push('取码地址已就绪，点通知查看');
+    const n = new Notification('需要手动输入验证码', {
+      body: lines.filter(Boolean).join('\n'),
+      tag: 'manual-otp-' + (item.request_id || item.email || ''),
+      requireInteraction: true,
+    });
+    n.onclick = () => { try { window.focus(); } catch (e) {} openManualOtpPanel(true); n.close(); };
+  } catch (e) { /* 通知失败不影响弹框 */ }
+}
+
+function startManualOtpTitleFlash() {
+  if (MANUAL_OTP_TITLE_TIMER) return;
+  let on = false;
+  MANUAL_OTP_TITLE_TIMER = setInterval(() => {
+    on = !on;
+    document.title = on ? '【需输入验证码】' + MANUAL_OTP_BASE_TITLE : MANUAL_OTP_BASE_TITLE;
+  }, 1200);
+}
+
+function stopManualOtpTitleFlash() {
+  if (MANUAL_OTP_TITLE_TIMER) { clearInterval(MANUAL_OTP_TITLE_TIMER); MANUAL_OTP_TITLE_TIMER = null; }
+  document.title = MANUAL_OTP_BASE_TITLE;
+}
+
+function manualOtpItemById(id) {
+  if (!id) return null;
+  return MANUAL_OTP_ITEMS.find(x => (x.request_id || '') === id) || null;
+}
+
+function openManualOtpPanel(force = false) {
+  if (!MANUAL_OTP_CURRENT) return;
+  const id = MANUAL_OTP_CURRENT.request_id || '';
+  if (!force && MANUAL_OTP_DISMISSED.has(id)) return;
+  $('#manualOtpPanel').classList.remove('hidden');
+  updateModalScrollLock();
+}
+
+function closeManualOtpPanel() {
+  if (MANUAL_OTP_CURRENT) MANUAL_OTP_DISMISSED.add(MANUAL_OTP_CURRENT.request_id || '');
+  $('#manualOtpPanel').classList.add('hidden');
+  updateModalScrollLock();
+}
+
+function updateManualOtpCountdown() {
+  const el = $('#manualOtpCountdown');
+  if (!el || !MANUAL_OTP_CURRENT) return;
+  const remaining = MANUAL_OTP_CURRENT.remaining;
+  if (typeof remaining === 'number') {
+    const m = Math.floor(remaining / 60);
+    const s = remaining % 60;
+    el.textContent = `${m} 分 ${String(s).padStart(2, '0')} 秒后超时（提交后立即继续）`;
+    $('#manualOtpCountdown').style.color = remaining <= 60 ? '#b3261e' : '';
+  } else {
+    el.textContent = '不限时';
+    $('#manualOtpCountdown').style.color = '';
+  }
+}
+
+function renderManualOtpPanel(item, queueLen) {
+  MANUAL_OTP_CURRENT = item;
+  $('#manualOtpPurpose').textContent = item.purpose || '邮箱验证码';
+  $('#manualOtpEmail').textContent = item.email || '-';
+
+  const url = String(item.code_url || '').trim();
+  $('#manualOtpUrlRow').classList.toggle('hidden', !url);
+  if (url) { $('#manualOtpUrl').href = url; $('#manualOtpUrl').textContent = url; }
+
+  const err = (item.extra && item.extra.auto_error) || '';
+  $('#manualOtpErrorRow').classList.toggle('hidden', !err);
+  if (err) $('#manualOtpAutoError').textContent = err;
+
+  const badge = $('#manualOtpQueueBadge');
+  if (queueLen > 1) { badge.classList.remove('hidden'); badge.textContent = `共 ${queueLen} 个待输入`; }
+  else badge.classList.add('hidden');
+
+  const srcBtn = $('#btnManualOtpOpenSource');
+  srcBtn.classList.toggle('hidden', !(item.job_id || (item.purpose || '').indexOf('查活') >= 0 || (item.purpose || '').indexOf('换绑') >= 0));
+
+  updateManualOtpCountdown();
+  if (!document.activeElement || document.activeElement === document.body) {
+    const input = $('#manualOtpCodeInput');
+    if (input && !input.value) input.focus();
+  }
+}
+
+async function pollManualOtp() {
+  let items = [];
+  try {
+    const r = await api('/api/manual-otp/pending');
+    items = (r.items || []).filter(x => !x.cancelled);
+  } catch (e) {
+    return; // 网络抖动/重启中忽略，下次轮询再试
+  }
+  MANUAL_OTP_ITEMS = items;
+
+  if (!items.length) {
+    MANUAL_OTP_CURRENT = null;
+    stopManualOtpTitleFlash();
+    $('#manualOtpPanel').classList.add('hidden');
+    updateModalScrollLock();
+    return;
+  }
+
+  // 当前项已失效（被别处提交/取消/超时）→ 切换到剩余的第一个
+  if (MANUAL_OTP_CURRENT && !manualOtpItemById(MANUAL_OTP_CURRENT.request_id || '')) MANUAL_OTP_CURRENT = null;
+  const target = MANUAL_OTP_CURRENT ? manualOtpItemById(MANUAL_OTP_CURRENT.request_id) : items[0];
+  if (!target) return;
+
+  renderManualOtpPanel(target, items.length);
+
+  // 每个请求只提醒一次，避免每次轮询都轰炸
+  for (const it of items) {
+    const key = it.request_id || it.email || '';
+    if (MANUAL_OTP_NOTIFIED.has(key)) continue;
+    MANUAL_OTP_NOTIFIED.add(key);
+    notifyManualOtp(it);
+  }
+  for (const id of Array.from(MANUAL_OTP_DISMISSED)) {
+    if (!items.some(x => (x.request_id || '') === id)) MANUAL_OTP_DISMISSED.delete(id);
+  }
+
+  openManualOtpPanel();
+  startManualOtpTitleFlash();
+}
+
+async function submitManualOtpFromPanel() {
+  const item = MANUAL_OTP_CURRENT;
+  if (!item) { showToast('当前没有待输入的验证码请求'); return; }
+  const input = $('#manualOtpCodeInput');
+  const code = (input.value || '').trim();
+  if (!code) { showToast('请先填写验证码'); input.focus(); return; }
+
+  const btn = $('#btnManualOtpSubmit');
+  btn.disabled = true;
+  try {
+    const r = await api('/api/manual-otp', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ email: item.email, code, request_id: item.request_id, job_id: item.job_id }),
+    });
+    showToast(r.ok ? `验证码已提交（${item.email}），流程继续` : (r.error || '提交失败'));
+    if (r.ok) {
+      input.value = '';
+      MANUAL_OTP_DISMISSED.delete(item.request_id || '');
+      MANUAL_OTP_CURRENT = null;
+    }
+  } catch (e) {
+    showToast('提交失败: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+  await pollManualOtp();
+}
+
+async function cancelManualOtpFromPanel() {
+  const item = MANUAL_OTP_CURRENT;
+  if (!item) return;
+  if (!confirm(`确定取消本次手动输入？\n\n邮箱：${item.email}\n用途：${item.purpose || '-'}\n\n对应任务会立即失败。`)) return;
+  try {
+    await api('/api/manual-otp/cancel', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ email: item.email, request_id: item.request_id }),
+    });
+    showToast('已取消手动输入，任务将立即失败');
+    MANUAL_OTP_CURRENT = null;
+  } catch (e) {
+    showToast('取消失败: ' + e.message);
+  }
+  await pollManualOtp();
+}
+
+function openManualOtpSourceLog() {
+  const item = MANUAL_OTP_CURRENT;
+  if (!item) return;
+  const purpose = String(item.purpose || '');
+  if (item.job_id) { openLog(item.job_id); return; }
+  if (purpose.indexOf('换绑') >= 0) {
+    const acc = (ACCOUNTS || []).find(a => String(a.email || '').toLowerCase() === String(item.email || '').toLowerCase());
+    if (acc && acc.id) { openEmailChangeLog(acc.id); return; }
+  }
+  openLiveLog(item.email || '');
+}
+
+if ($('#manualOtpPanel')) {
+  $('#btnCloseManualOtp').addEventListener('click', closeManualOtpPanel);
+  $('#btnManualOtpNotify').addEventListener('click', requestManualOtpNotify);
+  $('#btnManualOtpSubmit').addEventListener('click', submitManualOtpFromPanel);
+  $('#btnManualOtpCancel').addEventListener('click', cancelManualOtpFromPanel);
+  $('#btnManualOtpOpenSource').addEventListener('click', openManualOtpSourceLog);
+  $('#btnCopyManualOtpEmail').addEventListener('click', () => copyText(MANUAL_OTP_CURRENT?.email || ''));
+  $('#btnCopyManualOtpUrl').addEventListener('click', () => copyText(MANUAL_OTP_CURRENT?.code_url || ''));
+  $('#btnOpenManualOtpUrl').addEventListener('click', () => {
+    const url = (MANUAL_OTP_CURRENT?.code_url || '').trim();
+    if (url) window.open(url, '_blank', 'noopener');
+  });
+  $('#manualOtpCodeInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); submitManualOtpFromPanel(); }
+  });
+  updateManualOtpNotifyBtn();
+}
+
+// ---------- Cloudflare 风控人工处理（弹框提醒 + 定时复检进度） ----------
+// 注册/授权过程中页面被 Cloudflare 接管（“Verify you are human” 复选框、Just a moment
+// 验证页、Attention Required 拦截页）时，脚本点不了跨域验证框，会先登记一条
+// 「等待人工处理」：这里轮询到后弹框 + 桌面提醒，后端按配置间隔定时复检页面是否恢复，
+// 恢复后流程自动继续。用户也可以点「我已处理完成」立即触发一次复检，或点「取消本次任务」。
+let MI_ITEMS = [];
+let MI_CURRENT = null;
+let MI_SYNCED_AT = 0;
+let MI_TIMER = null;
+let MI_TICK_TIMER = null;
+let MI_TITLE_TIMER = null;
+const MI_NOTIFIED = new Set();
+const MI_DISMISSED = new Set();
+
+function manualInterventionNotifySupported() { return typeof Notification !== 'undefined'; }
+
+function updateManualInterventionNotifyBtn() {
+  const btn = $('#btnManualInterventionNotify');
+  if (!btn) return;
+  if (!manualInterventionNotifySupported()) { btn.textContent = '浏览器不支持提醒'; btn.disabled = true; return; }
+  if (Notification.permission === 'granted') { btn.textContent = '浏览器提醒已开启'; btn.disabled = true; }
+  else if (Notification.permission === 'denied') { btn.textContent = '浏览器提醒已被禁用'; btn.disabled = true; }
+  else { btn.textContent = '开启浏览器提醒'; btn.disabled = false; }
+}
+
+async function requestManualInterventionNotify() {
+  if (!manualInterventionNotifySupported()) { showToast('当前浏览器不支持桌面提醒'); return; }
+  try { await Notification.requestPermission(); } catch (e) { /* 需要用户手势，忽略 */ }
+  updateManualOtpNotifyBtn();
+  updateManualInterventionNotifyBtn();
+  showToast(Notification.permission === 'granted'
+    ? '已开启浏览器提醒：需要你手动处理风控时会通知你'
+    : '未开启浏览器提醒（可稍后在浏览器地址栏权限里打开）');
+}
+
+function notifyManualIntervention(item) {
+  if (!manualInterventionNotifySupported() || Notification.permission !== 'granted') return;
+  try {
+    const lines = [item.kind_label || 'Cloudflare 风控', item.task || '', item.email || ''].filter(Boolean);
+    const n = new Notification('需要你在浏览器窗口里手动处理', {
+      body: lines.join('\n'),
+      tag: 'manual-intervention-' + (item.request_id || ''),
+      requireInteraction: true,
+    });
+    n.onclick = () => {
+      try { window.focus(); } catch (e) {}
+      MI_DISMISSED.delete(item.request_id || '');
+      openManualInterventionPanel(true);
+      showManualInterventionPanel();
+      n.close();
+    };
+  } catch (e) { /* 通知失败不影响弹框 */ }
+}
+
+function startManualInterventionTitleFlash() {
+  if (MI_TITLE_TIMER) return;
+  let on = false;
+  MI_TITLE_TIMER = setInterval(() => {
+    if (MANUAL_OTP_TITLE_TIMER) return;   // 让位给验证码闪烁，避免两者互相刷标题
+    on = !on;
+    document.title = on ? '【需处理风控】' + MANUAL_OTP_BASE_TITLE : MANUAL_OTP_BASE_TITLE;
+  }, 1200);
+}
+
+function stopManualInterventionTitleFlash() {
+  if (MI_TITLE_TIMER) { clearInterval(MI_TITLE_TIMER); MI_TITLE_TIMER = null; }
+  if (!MANUAL_OTP_TITLE_TIMER) document.title = MANUAL_OTP_BASE_TITLE;
+}
+
+function miItemById(id) {
+  if (!id) return null;
+  return MI_ITEMS.find(x => (x.request_id || '') === id) || null;
+}
+
+// 任务表里的"风控待处理"小徽标（点它重新打开弹框提醒）
+let MI_JOBS_SEEN = '';
+
+function manualInterventionItemForJob(jobId) {
+  if (jobId === null || jobId === undefined) return null;
+  return MI_ITEMS.find(x => Number(x.job_id) === Number(jobId) && x.status !== 'recovered') || null;
+}
+
+function reopenManualInterventionForJob(jobId) {
+  const item = manualInterventionItemForJob(jobId);
+  if (!item) { showToast('该任务当前没有待处理的 Cloudflare 风控'); return; }
+  MI_DISMISSED.delete(item.request_id || '');
+  renderManualInterventionPanel(item, MI_ITEMS.length);
+  openManualInterventionPanel(true);
+}
+
+function syncManualInterventionJobsBadge() {
+  const ids = MI_ITEMS.map(x => String(x.job_id || '')).filter(Boolean).sort().join(',');
+  if (ids === MI_JOBS_SEEN) return;
+  MI_JOBS_SEEN = ids;
+  const regTab = $('#tab-register');
+  if (regTab && !regTab.classList.contains('hidden')) refreshJobs();
+}
+
+function showManualInterventionPanel() {
+  if (!MI_CURRENT) return;
+  $('#manualInterventionPanel').classList.remove('hidden');
+  updateModalScrollLock();
+}
+
+function openManualInterventionPanel(force = false) {
+  if (!MI_CURRENT) return;
+  const id = MI_CURRENT.request_id || '';
+  if (!force && MI_DISMISSED.has(id)) return;
+  showManualInterventionPanel();
+}
+
+function closeManualInterventionPanel() {
+  if (MI_CURRENT) MI_DISMISSED.add(MI_CURRENT.request_id || '');
+  $('#manualInterventionPanel').classList.add('hidden');
+  updateModalScrollLock();
+}
+
+function updateManualInterventionCountdown() {
+  const el = $('#manualInterventionCountdown');
+  if (!el || !MI_CURRENT) return;
+  const base = MI_CURRENT.remaining;
+  if (typeof base !== 'number') { el.textContent = '不限时'; el.style.color = ''; return; }
+  const left = Math.max(0, base - Math.round((Date.now() - MI_SYNCED_AT) / 1000));
+  const m = Math.floor(left / 60);
+  const s = left % 60;
+  el.textContent = `${m} 分 ${String(s).padStart(2, '0')} 秒后超时（页面恢复后会立即继续）`;
+  el.style.color = left <= 60 ? '#b3261e' : '';
+}
+
+function renderManualInterventionPanel(item, queueLen) {
+  MI_CURRENT = item;
+  $('#manualInterventionTitle').textContent = item.title || '需要人工处理';
+  $('#manualInterventionKind').textContent = item.kind_label || item.kind || '-';
+  const jobText = item.job_id ? `#${item.job_id}${item.task ? ' · ' + item.task : ''}` : (item.task || '-');
+  $('#manualInterventionTask').textContent = jobText;
+  $('#manualInterventionEmail').textContent = item.email || '-';
+
+  const url = String(item.url || '').trim();
+  $('#manualInterventionUrlRow').classList.toggle('hidden', !url);
+  if (url) $('#manualInterventionUrl').textContent = url;
+
+  const badge = $('#manualInterventionBadge');
+  if (queueLen > 1) { badge.classList.remove('hidden'); badge.textContent = `共 ${queueLen} 个待处理`; }
+  else { badge.classList.add('hidden'); badge.textContent = '风控'; }
+
+  const st = $('#manualInterventionStatus');
+  const cls = item.status === 'recovered' ? ' is-ok' : (item.status === 'timeout' ? ' is-bad' : '');
+  st.className = 'mi-status' + cls;
+  st.textContent = [
+    item.status_text || '',
+    item.checks ? `已定时复检 ${item.checks} 次` : '',
+    item.detail ? `复检结果：${item.detail}` : '',
+  ].filter(Boolean).join('\n');
+
+  $('#manualInterventionHint').textContent = item.guide || '';
+
+  const done = item.status === 'recovered' || item.status === 'timeout';
+  $('#btnManualInterventionAck').classList.toggle('hidden', done);
+  $('#btnManualInterventionCancel').classList.toggle('hidden', done);
+
+  updateManualInterventionCountdown();
+}
+
+async function pollManualIntervention() {
+  let items = [];
+  try {
+    const r = await api('/api/manual-intervention/pending');
+    items = (r.items || []).filter(x => x.status !== 'cancelled');
+  } catch (e) {
+    return; // 网络抖动/重启中忽略，下次轮询再试
+  }
+  MI_ITEMS = items;
+
+  if (!items.length) {
+    MI_CURRENT = null;
+    stopManualInterventionTitleFlash();
+    $('#manualInterventionPanel').classList.add('hidden');
+    updateModalScrollLock();
+    syncManualInterventionJobsBadge();
+    return;
+  }
+
+  // 当前项已结束（被别处确认/取消/超时）→ 切到剩余的第一个
+  if (MI_CURRENT && !miItemById(MI_CURRENT.request_id || '')) MI_CURRENT = null;
+  const target = MI_CURRENT
+    ? miItemById(MI_CURRENT.request_id)
+    : (items.find(x => x.status !== 'recovered') || items[0]);
+  if (!target) return;
+
+  MI_SYNCED_AT = Date.now();
+  renderManualInterventionPanel(target, items.length);
+
+  // 每个请求只提醒一次，避免每次轮询都轰炸
+  for (const it of items) {
+    const key = it.request_id || '';
+    if (MI_NOTIFIED.has(key)) continue;
+    MI_NOTIFIED.add(key);
+    notifyManualIntervention(it);
+  }
+  for (const id of Array.from(MI_DISMISSED)) {
+    if (!items.some(x => (x.request_id || '') === id)) MI_DISMISSED.delete(id);
+  }
+
+  openManualInterventionPanel();
+  if (target.status === 'recovered') stopManualInterventionTitleFlash();
+  else startManualInterventionTitleFlash();
+  syncManualInterventionJobsBadge();
+}
+
+async function ackManualIntervention() {
+  const item = MI_CURRENT;
+  if (!item) return;
+  const btn = $('#btnManualInterventionAck');
+  btn.disabled = true;
+  try {
+    const r = await api('/api/manual-intervention/ack', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ request_id: item.request_id }),
+    });
+    showToast(r.ok ? '已通知脚本立即复检页面' : (r.error || '提交失败'));
+    if (r.ok) MI_DISMISSED.delete(item.request_id || '');
+  } catch (e) {
+    showToast('提交失败: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+  await pollManualIntervention();
+}
+
+async function cancelManualIntervention() {
+  const item = MI_CURRENT;
+  if (!item) return;
+  const who = item.email || (item.job_id ? `任务 #${item.job_id}` : '该任务');
+  if (!confirm(`确定取消？\n\n${who}\n类型：${item.kind_label || '-'}\n\n对应任务会立即失败。`)) return;
+  try {
+    const r = await api('/api/manual-intervention/cancel', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ request_id: item.request_id, reason: '用户在 WebUI 取消人工处理' }),
+    });
+    showToast(r.ok ? '已取消人工处理，任务将立即失败' : (r.error || '取消失败'));
+    MI_CURRENT = null;
+  } catch (e) {
+    showToast('取消失败: ' + e.message);
+  }
+  await pollManualIntervention();
+}
+
+function openManualInterventionLog() {
+  const item = MI_CURRENT;
+  if (!item) return;
+  if (item.job_id) { openLog(item.job_id); return; }
+  showToast('该请求没有关联注册任务，可在任务列表里查看日志');
+}
+
+if ($('#manualInterventionPanel')) {
+  $('#btnCloseManualIntervention').addEventListener('click', closeManualInterventionPanel);
+  $('#btnManualInterventionAck').addEventListener('click', ackManualIntervention);
+  $('#btnManualInterventionCancel').addEventListener('click', cancelManualIntervention);
+  $('#btnManualInterventionLog').addEventListener('click', openManualInterventionLog);
+  $('#btnManualInterventionNotify').addEventListener('click', requestManualInterventionNotify);
+  $('#btnCopyManualInterventionEmail').addEventListener('click', () => copyText(MI_CURRENT?.email || ''));
+  $('#btnCopyManualInterventionUrl').addEventListener('click', () => copyText(MI_CURRENT?.url || ''));
+  updateManualInterventionNotifyBtn();
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const panel = $('#manualInterventionPanel');
+    if (panel && !panel.classList.contains('hidden')) closeManualInterventionPanel();
+  });
+}
+
+// ---------- 侧边栏展开/收起 ----------
+function bindSidebarCollapse() {
+  const btn = document.getElementById('btnSidebarCollapse');
+  if (!btn) return;
+
+  const applyState = (collapsed) => {
+    document.body.classList.toggle('sidebar-collapsed', collapsed);
+    btn.title = collapsed ? '展开侧边栏' : '收起侧边栏';
+    btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  };
+
+  let collapsed = false;
+  try { collapsed = localStorage.getItem('gpt_console_sidebar_collapsed') === '1'; } catch (e) {}
+  applyState(collapsed);
+
+  btn.addEventListener('click', () => {
+    collapsed = !document.body.classList.contains('sidebar-collapsed');
+    applyState(collapsed);
+    try { localStorage.setItem('gpt_console_sidebar_collapsed', collapsed ? '1' : '0'); } catch (e) {}
+  });
+}
+
 // ---------- 初始化 ----------
+bindSidebarCollapse();
+// 首屏渲染完成后再打开宽度过渡，避免初始化时出现展开动画
+requestAnimationFrame(() => document.body.classList.add('ui-ready'));
 loadSummary();
+// 手动输入验证码：3 秒轮询一次待办，1 秒刷新倒计时
+MANUAL_OTP_TIMER = setInterval(pollManualOtp, 3000);
+MANUAL_OTP_TICK_TIMER = setInterval(updateManualOtpCountdown, 1000);
+pollManualOtp();
+// Cloudflare 风控人工处理：同样 3 秒轮询一次，1 秒刷新剩余时间
+MI_TIMER = setInterval(pollManualIntervention, 3000);
+MI_TICK_TIMER = setInterval(updateManualInterventionCountdown, 1000);
+pollManualIntervention();
 activateTab(localStorage.getItem('gpt_console_active_tab') || 'register', false);
 jobsTimer = setInterval(() => { if (!$('#tab-register').classList.contains('hidden')) refreshJobs(); }, 10000);
 setInterval(loadSummary, 30000);

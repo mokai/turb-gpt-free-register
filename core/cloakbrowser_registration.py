@@ -18,9 +18,11 @@ from core.humanize import delay as human_delay
 
 # 复用 Roxy 注册流程里已维护好的页面操作函数。
 from core.roxy_registration import (  # noqa: F401
+    _SELENIUM_TIMEOUT_OVERRIDE,
     _maybe_accept, _submit_email_and_wait_next, _fill_password_page_if_present,
     _clear_otp_inputs, _type_otp, _click_continue, _wait_after_email_otp_submit,
     _click_resend_email_otp, _complete_profile_page, _fetch_chatgpt_session, _check_manual_stop,
+    clear_cf_context, set_cf_context, update_cf_context,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,8 +45,13 @@ def run_cloak_registration(
     traffic_tracker: PlaywrightTrafficTracker | None = None
     data_saver: BrowserDataSaver | None = None
     network_traffic: dict | None = None
+    timeout_token = None
     try:
         driver, opened = build_cloak_driver(proxy=proxy)
+        # 共享页面操作函数（roxy_registration）默认按 Roxy 超时等待，
+        # Cloak 走自己的 CLOAK_SELENIUM_TIMEOUT。
+        timeout_token = _SELENIUM_TIMEOUT_OVERRIDE.set(int(getattr(_cfg, "CLOAK_SELENIUM_TIMEOUT", 90) or 90))
+        set_cf_context(email=email, task="注册")
         try:
             traffic_tracker = PlaywrightTrafficTracker(driver.context, label="Cloak")
         except Exception as exc:
@@ -69,6 +76,7 @@ def run_cloak_registration(
             email = acquire_email_after_input(email)
             if on_email_acquired:
                 on_email_acquired(email)
+            update_cf_context(email=email)
             return email
 
         next_state = _submit_email_and_wait_next(
@@ -219,6 +227,7 @@ def run_cloak_registration(
             "error": f"{type(exc).__name__}: {str(exc)[:300]}",
         }
     finally:
+        clear_cf_context()
         if traffic_tracker is not None:
             try:
                 traffic_tracker.stop()
@@ -226,6 +235,11 @@ def run_cloak_registration(
                 pass
         if data_saver is not None:
             data_saver.stop()
+        if timeout_token is not None:
+            try:
+                _SELENIUM_TIMEOUT_OVERRIDE.reset(timeout_token)
+            except Exception:
+                pass
         if driver and not bool(_cfg.CLOAK_KEEP_BROWSER_OPEN):
             try:
                 driver.quit()

@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 from core import db
 from core.email_provider import (
     acquire_email_from_source, email_material_line,
-    release_email_if_unconsumed, wait_for_otp,
+    recycle_released_email, release_email_if_unconsumed, wait_for_otp,
 )
 from core.session import BrowserSession
 from config import proxy as _proxy_cfg
@@ -81,8 +81,30 @@ def _is_switchable_route_error(exc: BaseException) -> bool:
     )
 
 
-def _pick_route_proxy(used: set[str]) -> str:
-    """优先选择未使用 URL；动态住宅池耗尽时允许重新建立同入口会话。"""
+def _change_proxy_pool() -> list[str]:
+    """读取换绑专用代理池（未配置返回空列表）。"""
+    pool = getattr(_proxy_cfg, "EMAIL_CHANGE_PROXY_POOL", []) or []
+    if isinstance(pool, str):
+        pool = [pool]
+    return [str(p or "").strip() for p in pool if str(p or "").strip()]
+
+
+def _pick_route_proxy(used: set[str], *, use_change_pool: bool = True) -> str:
+    """优先选择未使用 URL；动态住宅池耗尽时允许重新建立同入口会话。
+
+    use_change_pool=True 时优先从换绑专用代理池选路（未配置则回退通用池）；
+    use_change_pool=False 强制走通用代理池（查活 / 重认证步骤使用）。
+    """
+    if use_change_pool:
+        change_pool = _change_proxy_pool()
+        if change_pool:
+            return str(
+                _proxy_cfg.pick_proxy(
+                    exclude=used,
+                    allow_excluded_fallback=True,
+                    pool=change_pool,
+                ) or ""
+            ).strip()
     return str(
         _proxy_cfg.pick_proxy(
             exclude=used,
@@ -185,13 +207,14 @@ def _post_with_network_retry(
     raise last_exc
 
 
-def _enqueue_live_check_after_change(account_id: int, email: str) -> dict:
+def _enqueue_live_check_after_change(account_id: int, email: str, proxy_group: str = "") -> dict:
     """换绑成功后立即排队查活，用新邮箱重新登录并刷新失效的 AT。"""
     from core import live_check_service
 
     result = live_check_service.enqueue_account_live_check(
         account_id=int(account_id), email=str(email),
         trigger="email_change_auto", proxy=None,
+        proxy_group=str(proxy_group or ""),
     )
     if result.get("accepted"):
         logger.info("[邮箱换绑] 已自动加入查活队列 account_id=%s email=%s", account_id, email)
@@ -202,6 +225,54 @@ def _enqueue_live_check_after_change(account_id: int, email: str) -> dict:
             account_id, email, result.get("error") or "未知错误",
         )
         _append_log(account_id, f"自动查活入队失败：{result.get('error') or '未知错误'}")
+    return result
+
+
+def _recycle_released_email(account_id: int, *, email: str, source: str, account: dict) -> dict:
+    """换绑成功后把原邮箱按换绑前的来源放回邮箱池。
+
+    ``account`` 必须是**换绑前**读取的账号记录：``finish_account_email_change``
+    会在换绑成功后清空旧来源的 Outlook 凭证，之后再读就拿不到重建素材了。
+
+    回池失败不影响换绑结论（换绑本身已经成功），只写任务日志，避免邮箱池的
+    边界情况把一次成功的换绑标记成失败。
+    """
+    source = str(source or "").strip().lower()
+    credentials = None
+    if source == "outlook":
+        # Outlook 池记录被删过时，只能靠账号记录里保存的同一份素材重建。
+        credentials = {
+            "password": str(account.get("password") or ""),
+            "client_id": str(account.get("client_id") or ""),
+            "refresh_token": str(account.get("refresh_token") or ""),
+        }
+    try:
+        result = recycle_released_email(email, source, credentials=credentials, account_id=account_id)
+    except Exception as exc:
+        logger.warning(
+            "[邮箱换绑] 原邮箱回池失败 account_id=%s email=%s: %s", account_id, email, str(exc)[:300],
+        )
+        _append_log(account_id, f"原邮箱回池异常：email={email} error={type(exc).__name__}: {str(exc)[:200]}")
+        return {"ok": False, "source": source, "mode": "error", "message": str(exc)[:300]}
+
+    if result.get("ok"):
+        logger.info(
+            "[邮箱换绑] 原邮箱已回池 account_id=%s email=%s source=%s mode=%s",
+            account_id, email, result.get("source"), result.get("mode"),
+        )
+        _append_log(
+            account_id,
+            f"原邮箱已回池：email={email} source={result.get('source')} mode={result.get('mode')}",
+        )
+    else:
+        logger.info(
+            "[邮箱换绑] 原邮箱未回池 account_id=%s email=%s source=%s reason=%s",
+            account_id, email, result.get("source"), result.get("message"),
+        )
+        _append_log(
+            account_id,
+            f"原邮箱未回池：email={email} source={result.get('source')} 原因={result.get('message')}",
+        )
     return result
 
 
@@ -249,18 +320,20 @@ def _refresh_recent_login(
         current_profile_state["browser_profile"] = dict(browser_profile)
 
     login_started = time.monotonic()
-    selected_proxy = getattr(session, "proxy", None)
-    # 自适应代理池：当前出口失败后，动态选择下一个出口，从 CSRF 开始完整重跑。
-    # 不能在进入循环前一次性构造 routes：动态住宅池可能只有一个入口 URL，
-    # 但每次新建会话会轮换真实出口 IP。
-    # 新路线不复用旧路线的 browser_profile，让 BrowserSession 按新出口 Geo 自动生成
-    # navigator.language / Accept-Language / timezone 等画像；设备种子仍保持账号级稳定。
-    used_routes = {str(selected_proxy or "").strip()} if selected_proxy else set()
+    # 查活 / 重认证属于查活步骤：必须使用通用代理池，不能沿用换绑专用代理。
+    # 未配置换绑专用代理池时保持旧行为（优先复用当前会话出口，保持出口连续性）。
+    if _change_proxy_pool():
+        selected_proxy = _pick_route_proxy(set(), use_change_pool=False)
+        used_routes = {selected_proxy} if selected_proxy else set()
+        route_label = "通用代理池路线（查活步骤）"
+    else:
+        selected_proxy = getattr(session, "proxy", None)
+        used_routes = {str(selected_proxy or "").strip()} if selected_proxy else set()
+        route_label = "当前代理路线"
     max_routes = max(1, int(getattr(_proxy_cfg, "PROXY_MAX_ROUTE_ATTEMPTS", 4) or 4))
     last_exc: BaseException | None = None
     route_proxy = selected_proxy
     route_state = current_profile_state
-    route_label = "当前代理路线"
     for route_index in range(max_routes):
         login_session: BrowserSession | None = None
         try:
@@ -284,6 +357,7 @@ def _refresh_recent_login(
                 email,
                 otp_after_ts,
                 email_source=email_source or None,
+                purpose_prefix="换绑",
             )
             fresh_token = str((info or {}).get("accessToken") or "").strip()
             if not fresh_token:
@@ -319,7 +393,7 @@ def _refresh_recent_login(
                     login_session.session.close()
                 except Exception:
                     pass
-            next_proxy = _pick_route_proxy(used_routes)
+            next_proxy = _pick_route_proxy(used_routes, use_change_pool=False)
             if not next_proxy:
                 route_proxy = ""
                 route_label = "代理池为空/直连兜底"
@@ -416,6 +490,7 @@ def _check_live_in_current_session(
         email,
         otp_after_ts,
         email_source=email_source or None,
+        purpose_prefix="换绑",
     )
     access_token = str((session_info or {}).get("accessToken") or "").strip()
     if not access_token:
@@ -436,10 +511,11 @@ def _check_live_in_current_session(
     return result
 
 
-def _run(account_id: int, source: str) -> dict:
+def _run(account_id: int, source: str, proxy_group: str = "") -> dict:
     new_email = ""
     task_started = time.monotonic()
     stage = "初始化"
+    task_pool_applied = False
     with _LOCK:
         _RUNNING.add(account_id)
     try:
@@ -461,19 +537,43 @@ def _run(account_id: int, source: str) -> dict:
             raise RuntimeError("换绑任务状态已失效")
 
         stage = "创建网络会话"
-        saved_proxy = _proxy(account.get("proxy_used"))
-        # 账号保存的出口如果已被自适应策略冷却，则跳过它，直接从池里选健康出口。
-        if saved_proxy and _proxy_cfg.proxy_is_cooling_down(saved_proxy):
-            _append_log(account_id, "账号历史代理仍在冷却，跳过该出口并从代理池重新选路")
-            saved_proxy = ""
-        initial_proxy = saved_proxy or _proxy_cfg.pick_proxy()
+        group = str(proxy_group or "").strip()
+        if group:
+            # 手动选中的代理分组优先级最高：整条换绑链（含换路重试）都从该分组选出口。
+            group_pool = _proxy_cfg.resolve_group_pool(group)
+            if group_pool:
+                _proxy_cfg.set_task_pool(group_pool, name=group)
+                task_pool_applied = True
+                _append_log(
+                    account_id,
+                    f"网络选路：指定代理分组「{group}」（共 {len(group_pool)} 个出口），"
+                    f"优先于换绑专用代理与账号历史出口",
+                )
+            else:
+                _append_log(account_id, f"代理分组「{group}」为空或不存在，回退全局代理配置")
+        change_pool = [] if group else _change_proxy_pool()
+        if change_pool:
+            # 配置了换绑专用代理池：优先使用它，不再复用账号历史出口。
+            initial_proxy = _proxy_cfg.pick_proxy(pool=change_pool) or ""
+            _append_log(
+                account_id,
+                f"网络选路：换绑专用代理池（共 {len(change_pool)} 个出口）",
+            )
+        else:
+            saved_proxy = _proxy(account.get("proxy_used"))
+            # 账号保存的出口如果已被自适应策略冷却，则跳过它，直接从池里选健康出口。
+            if saved_proxy and _proxy_cfg.proxy_is_cooling_down(saved_proxy):
+                _append_log(account_id, "账号历史代理仍在冷却，跳过该出口并从代理池重新选路")
+                saved_proxy = ""
+            initial_proxy = saved_proxy or _proxy_cfg.pick_proxy()
         # 账号没有可复用的真实代理 URL 时，按全局代理池选路，而不是直接裸连。
         current_email = str(account.get("email") or "").strip()
         current_source = str(account.get("email_source") or "").strip().lower()
         session = _new_session(account_id, initial_proxy or "", email=current_email)
         _append_log(
             account_id,
-            f"网络会话已创建：route={'账号代理' if saved_proxy else '自适应代理池/默认网络'} "
+            f"网络会话已创建：route="
+            f"{'换绑专用代理池' if change_pool else ('账号代理' if saved_proxy else '自适应代理池/默认网络')} "
             f"proxy={_proxy_label(getattr(session, 'proxy', None))}",
         )
         _append_log(account_id, f"指纹摘要：{session.fingerprint_summary_text()}")
@@ -495,7 +595,13 @@ def _run(account_id: int, source: str) -> dict:
         )
         stage = "等待新邮箱 OTP"
         otp_started = time.monotonic()
-        otp = wait_for_otp(new_email, after_ts=after_ts, email_source=source, force_service=True)
+        otp = wait_for_otp(
+            new_email,
+            after_ts=after_ts,
+            email_source=source,
+            force_service=True,
+            purpose="换绑-新邮箱验证码",
+        )
         _append_log(account_id, f"新邮箱 OTP 获取成功：source={source} cost={_cost(otp_started)}（验证码不写入日志）")
         stage = "验证新邮箱 OTP"
         _, session = _post_with_network_retry(
@@ -513,30 +619,50 @@ def _run(account_id: int, source: str) -> dict:
             material_line=email_material_line(new_email, source),
         )
         _append_log(account_id, f"本地账号更新成功：current_email={new_email}，旧 AT 已清空，cost={_cost(db_started)}")
+
+        # 原邮箱已被服务端释放，可以重新用于注册，因此按它**换绑前**的来源放回
+        # 邮箱池（current_source/current_email 在换绑前读取，finish 之后账号
+        # 来源已经变成新邮箱的来源，只能在这里用旧值回收）。
+        stage = "换绑后回收原邮箱"
+        recycle_result = _recycle_released_email(
+            account_id, email=current_email, source=current_source, account=account,
+        )
         # 抓包显示 verify 后旧 AT 会立刻 401，但当前会话中的 __cf_bm、OAuth
         # Cookie 和出口连续性仍然有效。优先在该会话内重新登录，避免另建会话后
         # `/api/auth/csrf` 被 CF 403；原会话失败时再退回后台查活队列。
+        # 查活属于查活步骤：配置了换绑专用代理池时，当前会话出口属于换绑代理，
+        # 因此直接走后台查活队列（后台查活按通用网络策略选路）。
         stage = "换绑后自动查活"
-        try:
-            live_result = _check_live_in_current_session(
-                session,
-                account_id=account_id,
-                email=new_email,
-                email_source=source,
-            )
-            live_mode = "same_session"
-        except Exception as live_exc:
-            _append_log(
-                account_id,
-                f"原会话查活失败：{type(live_exc).__name__}: {str(live_exc)[:300]}；改用后台查活队列",
-            )
-            logger.warning("[邮箱换绑] 原会话查活失败 account_id=%s: %s", account_id, str(live_exc)[:300])
-            live_result = _enqueue_live_check_after_change(account_id, new_email)
+        if change_pool:
+            # 已配置换绑专用代理池：当前会话出口属于换绑代理，查活必须走通用
+            # 网络策略，因此直接排队后台查活（不使用换绑会话）。
+            _append_log(account_id, "已配置换绑专用代理池，查活改走后台队列（通用网络策略）")
+            live_result = _enqueue_live_check_after_change(account_id, new_email, proxy_group)
             live_mode = "queued"
+        else:
+            try:
+                live_result = _check_live_in_current_session(
+                    session,
+                    account_id=account_id,
+                    email=new_email,
+                    email_source=source,
+                )
+                live_mode = "same_session"
+            except Exception as live_exc:
+                _append_log(
+                    account_id,
+                    f"原会话查活失败：{type(live_exc).__name__}: {str(live_exc)[:300]}；改用后台查活队列",
+                )
+                logger.warning("[邮箱换绑] 原会话查活失败 account_id=%s: %s", account_id, str(live_exc)[:300])
+                live_result = _enqueue_live_check_after_change(account_id, new_email, proxy_group)
+                live_mode = "queued"
         logger.info("[邮箱换绑] 成功 account_id=%s new=%s；已执行换绑后查活", account_id, new_email)
         _append_log(account_id, f"换绑任务完成：live_check_mode={live_mode} total={_cost(task_started)}")
         return {
             "ok": True, "id": account_id, "email": new_email,
+            "old_email": current_email or None,
+            "old_email_source": current_source or None,
+            "old_email_recycle": recycle_result,
             "live_check_started": bool(live_result.get("ok") or live_result.get("accepted")),
             "live_check_mode": live_mode,
             "live_check_error": None if (live_result.get("ok") or live_result.get("accepted")) else live_result.get("error"),
@@ -555,12 +681,17 @@ def _run(account_id: int, source: str) -> dict:
         logger.exception("[邮箱换绑] 失败 account_id=%s", account_id)
         return {"ok": False, "id": account_id, "error": error}
     finally:
+        if task_pool_applied:
+            try:
+                _proxy_cfg.clear_task_pool()
+            except Exception:
+                pass
         with _LOCK:
             _RUNNING.discard(account_id)
         _SLOTS.release()
 
 
-def enqueue(account_id: int, source: str, trigger: str = "manual") -> dict:
+def enqueue(account_id: int, source: str, trigger: str = "manual", proxy_group: str = "") -> dict:
     account_id = int(account_id)
     source = str(source or "").strip().lower()
     if not _SLOTS.acquire(blocking=False):
@@ -570,7 +701,7 @@ def enqueue(account_id: int, source: str, trigger: str = "manual") -> dict:
         return {"accepted": False, "busy": True, "error": "账号正在换绑或不存在"}
     _append_log(account_id, f"换绑任务已入队：source={source} trigger={trigger}", clear=True)
     try:
-        future = _EXECUTOR.submit(_run, account_id, source)
+        future = _EXECUTOR.submit(_run, account_id, source, str(proxy_group or ""))
         return {"accepted": True, "future": future}
     except Exception as exc:
         _SLOTS.release()

@@ -553,8 +553,92 @@ def get_account_context(email: str) -> RemailAccount | None:
         return _CONTEXT_CACHE.get(_cache_key(email))
 
 
+def pickup_url(email: str, service_token: str | None = None) -> str:
+    """返回 Remail 网页取件地址 ``{base}/pickup?email=..&token=..``（取不到返回空串）。
+
+    该地址是邮箱池里保存的「收件地址」，也是 ``core.generic_api_mail_client``
+    识别 Remail 并改用开放 API 取码的依据。不传 ``service_token`` 时按当前进程
+    上下文补齐。
+    """
+    target = str(email or "").strip()
+    token = str(service_token or "").strip()
+    if not token:
+        account = get_account_context(target)
+        token = str(getattr(account, "service_token", "") or "").strip() if account else ""
+    if not target or not token:
+        return ""
+    try:
+        base = _base_url()
+    except RemailError:
+        return ""
+    if not base:
+        return ""
+    return f"{base}/pickup?email={quote(target)}&token={token}"
+
+
+def _recycle_enabled() -> bool:
+    return bool(getattr(_email_cfg, "REMAIL_RECYCLE_FAILED_EMAIL", True))
+
+
+def recycle_failed_email(
+    email: str,
+    note: str | None = None,
+    account: RemailAccount | None = None,
+) -> bool:
+    """把注册失败且未被 OpenAI 消耗的 Remail 邮箱连取件地址写回本地邮箱池。
+
+    Remail 每个邮箱都是一次下单购买的，注册失败时订单通常仍可取件。写回「通用
+    API 邮箱池」（邮箱----取件地址）并标记 available 后，下次注册可直接领取复用，
+    不必重新下单。以下情况不回收：
+
+    * ``REMAIL_RECYCLE_FAILED_EMAIL`` 关闭；
+    * 拿不到取件凭证（如取件上下文已被清理）；
+    * 该邮箱已经注册成功（本地已有账号），回收只会让后续注册必然失败。
+    """
+    target = str(email or "").strip()
+    if not target or not _recycle_enabled():
+        return False
+
+    ctx = account or get_account_context(target)
+    token = str(getattr(ctx, "service_token", "") or "").strip()
+    link = pickup_url(target, token)
+    if not link:
+        logger.debug("[Remail] 缺少取件凭证，跳过失败邮箱回收: %s", target)
+        return False
+
+    try:
+        from core import db
+
+        if db.get_account_by_email(target) is not None:
+            logger.info("[Remail] 邮箱已注册成功，不再写回邮箱池: %s", target)
+            return False
+
+        order_no = str(getattr(ctx, "order_no", "") or "").strip()
+        detail = f"Remail 注册未消耗，已回收复用（order={order_no or '-'}）"
+        if note:
+            detail = f"{detail}；{str(note)[:160]}"
+        action = db.upsert_generic_api_email(target, link, status="available", note=detail)
+    except Exception as exc:
+        logger.warning("[Remail] 写回邮箱池失败: %s %s: %s", target, type(exc).__name__, exc)
+        return False
+
+    if not action:
+        return False
+    logger.info(
+        "[Remail] 已把失败邮箱写回邮箱池（%s）: %s",
+        "新增" if action == "inserted" else "刷新",
+        target,
+    )
+    return True
+
+
 def release_account(email: str, status: str = "available", note: str | None = None) -> None:
-    """释放本地取件上下文；订单生命周期由 Remail 服务端管理。"""
+    """释放本地取件上下文；订单生命周期由 Remail 服务端管理。
+
+    ``status="available"`` 表示这次注册失败但邮箱还没被 OpenAI 消耗（各注册驱动
+    在「创建接口通过前失败」时都会传这个状态），此时把邮箱和取件地址写回邮箱池，
+    避免每次失败都重新下单购买。
+    """
     with _CONTEXT_LOCK:
         account = _CONTEXT_CACHE.pop(_cache_key(email), None)
     if account:
@@ -565,6 +649,8 @@ def release_account(email: str, status: str = "available", note: str | None = No
             status,
             note or "",
         )
+    if status == "available":
+        recycle_failed_email(email, note=note, account=account)
 
 
 def _parse_timestamp(raw) -> float | None:
@@ -632,17 +718,30 @@ def fetch_latest_otp(
     max_wait: int | None = None,
     poll_interval: int | None = None,
     settle_seconds: int | None = None,
+    service_token: str | None = None,
 ) -> str:
-    """轮询 Remail pickup，返回领取时间之后最新的六位验证码。"""
+    """轮询 Remail pickup，返回领取时间之后最新的六位验证码。
+
+    ``service_token`` 用于调用方已经从别处拿到取件凭证的场景：导入账号时保存的
+    ``original_email_line`` / ``code_url`` 里就带着 Remail 网页取件地址
+    （``/pickup?email=...&token=st_...``），此时不需要 API Key，也不需要按订单
+    反查，直接用该 token 取码即可。
+    """
     target = str(email or "").strip()
     if not target:
         raise RemailError("Remail 取码缺少邮箱地址")
-    account = get_account_context(target) or restore_account_context(target)
-    if account is None:
-        raise RemailError(
-            "Remail 找不到该邮箱的 service token，且无法从已保存订单恢复；"
-            "请确认账号注册来源为 Remail、订单仍可取件，并已配置 Remail API Key"
-        )
+    token = str(service_token or "").strip()
+    account = None
+    if not token:
+        account = get_account_context(target) or restore_account_context(target)
+        if account is None:
+            raise RemailError(
+                "Remail 找不到该邮箱的 service token，且无法从已保存订单恢复；"
+                "请确认账号注册来源为 Remail、订单仍可取件，并已配置 Remail API Key"
+            )
+        token = str(account.service_token or "").strip()
+    if not token:
+        raise RemailError(f"Remail 取件凭证为空，无法取码: {target}")
 
     try:
         wait_seconds = int(max_wait if max_wait is not None else getattr(_email_cfg, "OTP_MAX_WAIT", 90))
@@ -670,7 +769,7 @@ def fetch_latest_otp(
             payload = _request(
                 "GET",
                 "/v1/pickup",
-                params={"email": target, "token": account.service_token},
+                params={"email": target, "token": token},
                 authenticated=False,
             )
             items = _pickup_items(payload)

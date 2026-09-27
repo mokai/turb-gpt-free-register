@@ -39,6 +39,43 @@ from core.roxy_registration import (
 _base_logger = logging.getLogger(__name__)
 _CODEX_BROWSER_KIND: ContextVar[str] = ContextVar("codex_browser_kind", default="Roxy")
 
+# 浏览器适配点：比特浏览器等复用方在自己的入口里 set 一个覆盖 dict，包含：
+#   client_factory    -> 创建浏览器 API 客户端（需提供 open_profile/cleanup_profile）
+#   selenium_timeout  -> 页面加载超时秒数
+#   callback_timeout  -> 等待 localhost:1455 callback 的最长秒数
+#   keep_browser_open -> 调试保留窗口开关
+# 不设置时保持原有 RoxyBrowser 行为。
+_CODEX_BROWSER_OVERRIDES: ContextVar[dict | None] = ContextVar("codex_browser_overrides", default=None)
+
+
+def _codex_override() -> dict:
+    return _CODEX_BROWSER_OVERRIDES.get() or {}
+
+
+def _callback_timeout() -> int:
+    override = _codex_override().get("callback_timeout")
+    if override:
+        try:
+            return max(5, int(override))
+        except (TypeError, ValueError):
+            pass
+    return int(getattr(_roxy_cfg, "ROXY_CODEX_CALLBACK_TIMEOUT", 180) or 180)
+
+
+def _selenium_timeout_value() -> int:
+    override = _codex_override().get("selenium_timeout")
+    if override:
+        try:
+            return max(5, int(override))
+        except (TypeError, ValueError):
+            pass
+    return int(getattr(_roxy_cfg, "ROXY_SELENIUM_TIMEOUT", 90) or 90)
+
+
+def _make_browser_client():
+    factory = _codex_override().get("client_factory")
+    return factory() if callable(factory) else RoxyBrowserClient()
+
 
 def _codex_prefix() -> str:
     return f"[Codex][{_CODEX_BROWSER_KIND.get()}]"
@@ -50,6 +87,10 @@ def _codex_driver_name() -> str:
 
 def _detect_browser_kind(opened=None) -> str:
     try:
+        # 比特浏览器等复用方会在 open 结果上带 browser_kind 标记。
+        explicit = str(getattr(opened, "browser_kind", "") or "").strip()
+        if explicit:
+            return explicit
         raw = getattr(opened, "raw", None) or {}
         if isinstance(raw, dict) and str(raw.get("driver") or "").lower().startswith("cloak"):
             return "Cloak"
@@ -1321,7 +1362,7 @@ def _do_phone_verification_if_present(driver) -> None:
 
 def _finish_consent_workspace(driver) -> str:
     """点击 Codex consent/workspace 页面里的继续/允许按钮，直到 callback。"""
-    end = time.time() + int(_roxy_cfg.ROXY_CODEX_CALLBACK_TIMEOUT)
+    end = time.time() + _callback_timeout()
     while time.time() < end:
         callback = _extract_callback_url_from_any_window(driver)
         if callback:
@@ -1408,7 +1449,10 @@ def _run_roxy_codex_oauth_once(
     if otp_provider is None:
         otp_provider = wait_for_otp
 
-    client = None if reuse_existing_profile else RoxyBrowserClient()
+    # 必须走 _make_browser_client()：比特/Cloak 复用本流程时通过 _CODEX_BROWSER_OVERRIDES
+    # 注入各自的客户端工厂；此前这里硬编码 RoxyBrowserClient，会让比特的 Codex 授权
+    # 实际去连 Roxy 本地接口（提示也会说成"启动 RoxyBrowser"）。
+    client = None if reuse_existing_profile else _make_browser_client()
     opened = existing_opened if reuse_existing_profile else client.open_profile()
     browser_kind_token = _CODEX_BROWSER_KIND.set(_detect_browser_kind(opened))
     driver = existing_driver if reuse_existing_profile else None
@@ -1437,7 +1481,7 @@ def _run_roxy_codex_oauth_once(
         if not driver:
             driver = _build_driver(opened)
             _center_browser_window(driver)
-        driver.set_page_load_timeout(int(_roxy_cfg.ROXY_SELENIUM_TIMEOUT))
+        driver.set_page_load_timeout(_selenium_timeout_value())
         logger.info("[Codex][Browser] 开始授权：%s，profile=%s，reuse_existing_profile=%s", email, opened.profile_id, reuse_existing_profile)
         if reuse_existing_profile and clear_existing_state:
             clear_roxy_browser_auth_state(driver)

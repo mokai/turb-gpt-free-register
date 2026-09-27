@@ -71,12 +71,13 @@ def _append_log(email: str, line: str, *, clear: bool = False) -> None:
 
 def _run_twofa(
     *, account_id: int, email: str, access_token: str, proxy: str | None,
-    trigger: str,
+    trigger: str, proxy_group: str = "",
 ) -> dict:
     fh: logging.FileHandler | None = None
     session: BrowserSession | None = None
     root_logger = logging.getLogger()
     thread_name = threading.current_thread().name
+    task_pool_applied = False
     try:
         with _LOCK:
             _RUNNING.add(int(account_id))
@@ -91,6 +92,18 @@ def _run_twofa(
         fh.addFilter(lambda record: record.threadName == thread_name)
         root_logger.addHandler(fh)
         logger.info("[2FA] 开始后台设置：email=%s trigger=%s", email, trigger)
+        group = str(proxy_group or "").strip()
+        if group:
+            # 手动选中的代理分组优先级最高，覆盖账号历史出口和全局代理池。
+            from config.proxy import resolve_group_pool, set_task_pool
+
+            group_pool = resolve_group_pool(group)
+            if group_pool:
+                set_task_pool(group_pool, name=group)
+                task_pool_applied = True
+                _append_log(email, f"[2FA] 使用指定代理分组「{group}」（{len(group_pool)} 个出口）")
+            else:
+                _append_log(email, f"[2FA] 代理分组「{group}」为空或不存在，回退全局代理配置")
         real_proxy = _normalize_proxy(proxy)
         identity = email.strip().lower()
         session = BrowserSession(proxy=real_proxy, fingerprint_seed=f"account:{identity}")
@@ -117,6 +130,13 @@ def _run_twofa(
         logger.exception("[2FA] 后台异常: %s", email)
         return result
     finally:
+        if task_pool_applied:
+            try:
+                from config.proxy import clear_task_pool
+
+                clear_task_pool()
+            except Exception:
+                pass
         if session is not None:
             try:
                 session.session.close()
@@ -150,6 +170,7 @@ def enqueue_account_totp_setup(
     access_token: str,
     trigger: str = "manual",
     proxy: str | None = None,
+    proxy_group: str = "",
 ) -> dict:
     account_id = int(account_id)
     email = str(email or "").strip()
@@ -175,6 +196,7 @@ def enqueue_account_totp_setup(
             access_token=access_token,
             proxy=proxy,
             trigger=str(trigger or "manual"),
+            proxy_group=str(proxy_group or ""),
         )
         return {"accepted": True, "busy": False, "future": future, "log_path": str(log_path(email))}
     except Exception as exc:
