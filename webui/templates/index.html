@@ -198,8 +198,8 @@
       width: 100%; max-width: 100%; min-width: 0;
       max-height: 320px; overflow: auto; line-height: 1.5;
     }
-    #logPanel, #retryLogPanel, #liveLogPanel, #totpLogPanel, #planLogPanel, #emailChangeLogPanel, #qrPanel, #manualOtpPanel, #manualInterventionPanel, #pgmEditPanel, #clientErrorPanel { min-width: 0; max-width: 100%; overflow-x: hidden; }
-    #logPanel:not(.hidden), #retryLogPanel:not(.hidden), #liveLogPanel:not(.hidden), #totpLogPanel:not(.hidden), #planLogPanel:not(.hidden), #emailChangeLogPanel:not(.hidden), #qrPanel:not(.hidden), #manualOtpPanel:not(.hidden), #manualInterventionPanel:not(.hidden), #pgmEditPanel:not(.hidden), #clientErrorPanel:not(.hidden) {
+    #logPanel, #retryLogPanel, #liveLogPanel, #totpLogPanel, #planLogPanel, #emailChangeLogPanel, #qrPanel, #manualOtpPanel, #pgmEditPanel, #clientErrorPanel { min-width: 0; max-width: 100%; overflow-x: hidden; }
+    #logPanel:not(.hidden), #retryLogPanel:not(.hidden), #liveLogPanel:not(.hidden), #totpLogPanel:not(.hidden), #planLogPanel:not(.hidden), #emailChangeLogPanel:not(.hidden), #qrPanel:not(.hidden), #manualOtpPanel:not(.hidden):not(.hidden), #pgmEditPanel:not(.hidden), #clientErrorPanel:not(.hidden) {
       position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
       z-index: 1000; display: block; width: min(1100px, calc(100vw - 48px));
       max-height: min(760px, calc(100vh - 48px)); overflow: hidden;
@@ -220,8 +220,8 @@
       font-size:17px; letter-spacing:3px; font-family: ui-monospace, Consolas, monospace;
     }
     .manual-otp-note { font-size:12px; color:var(--muted); margin-top:10px; line-height:1.7; }
-    #logPanel h3, #retryLogPanel h3, #liveLogPanel h3, #totpLogPanel h3, #planLogPanel h3, #emailChangeLogPanel h3, #qrPanel h3, #manualOtpPanel h3, #manualInterventionPanel h3, #pgmEditPanel h3, #clientErrorPanel h3 { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
-    #logPanel h3 .btn, #retryLogPanel h3 .btn, #liveLogPanel h3 .btn, #totpLogPanel h3 .btn, #planLogPanel h3 .btn, #emailChangeLogPanel h3 .btn, #qrPanel h3 .btn, #manualOtpPanel h3 .btn, #manualInterventionPanel h3 .btn, #pgmEditPanel h3 .btn, #clientErrorPanel h3 .btn { margin-left:auto; float:none !important; }
+    #logPanel h3, #retryLogPanel h3, #liveLogPanel h3, #totpLogPanel h3, #planLogPanel h3, #emailChangeLogPanel h3, #qrPanel h3, #manualOtpPanel h3 h3, #pgmEditPanel h3, #clientErrorPanel h3 { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+    #logPanel h3 .btn, #retryLogPanel h3 .btn, #liveLogPanel h3 .btn, #totpLogPanel h3 .btn, #planLogPanel h3 .btn, #emailChangeLogPanel h3 .btn, #qrPanel h3 .btn, #manualOtpPanel h3 .btn h3 .btn, #pgmEditPanel h3 .btn, #clientErrorPanel h3 .btn { margin-left:auto; float:none !important; }
     /* 分组编辑弹框：固定高度 + 弹性分栏，头/脚固定，中间只有一个滚动区。
        这样切分组/滚列表时标题和「保存分组」不会跟着滚走。 */
     #pgmEditPanel:not(.hidden) {
@@ -241,30 +241,6 @@
     #manualOtpPanel h3 .manual-otp-badge { margin-left:0; }
     #manualOtpPanel h3 #btnManualOtpNotify { margin-left:auto; }
     #manualOtpPanel h3 #btnCloseManualOtp { margin-left:6px; }
-    /* Cloudflare 风控人工处理弹框：固定高度 + 弹性分栏，中间只有一个滚动区 */
-    #manualInterventionPanel:not(.hidden) {
-      width: min(620px, calc(100vw - 48px)); z-index: 1150;
-      display: flex; flex-direction: column; padding: 16px 16px 0;
-    }
-    #manualInterventionPanel h3 { flex-wrap: wrap; margin-bottom: 6px; }
-    #manualInterventionPanel h3 .manual-otp-badge { margin-left: 0; }
-    #manualInterventionPanel h3 #btnCloseManualIntervention { margin-left: auto; }
-    #manualInterventionPanel .mi-body { flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; }
-    #manualInterventionPanel .mi-foot { flex: none; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 12px 0 16px; }
-    #manualInterventionPanel .mi-status {
-      margin-top: 10px; padding: 10px 12px; border: 1px solid #dbeafe; border-radius: 8px;
-      background: #f5f9ff; color: #1d4ed8; font-size: 13px; line-height: 1.7; white-space: pre-line;
-    }
-    #manualInterventionPanel .mi-status.is-ok { border-color: #bbe7c8; background: #f3fbf5; color: #1a7f37; }
-    #manualInterventionPanel .mi-status.is-bad { border-color: #f3b7b7; background: #fff6f6; color: #b3261e; }
-    #manualInterventionPanel .mi-hint { margin-top: 10px; font-size: 13px; line-height: 1.8; }
-    /* 任务表里"该任务正卡在 Cloudflare 风控"的小徽标：点一下重新打开弹框 */
-    .cf-badge {
-      display: block; width: fit-content; margin-top: 4px; padding: 1px 8px;
-      border: 1px solid #f3b7b7; border-radius: 999px; background: #fff6f6; color: #b3261e;
-      font-size: 11px; font-weight: 500; cursor: pointer; white-space: nowrap;
-    }
-    .cf-badge:hover { background: #ffecec; }
     #logPanel .log, #retryLogPanel .log, #liveLogPanel .log, #totpLogPanel .log, #planLogPanel .log, #emailChangeLogPanel .log { max-height: calc(min(760px, calc(100vh - 48px)) - 74px); margin-top:0; }
     #logManualLiveBar {
       display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
@@ -777,6 +753,8 @@
       min-height: 32px !important; min-width: 0 !important; max-width: 48px;
     }
     .jobs-v2-pager .pager-goto input:focus { outline: none; border-color: #377DFF; }
+    .pager-bar .pager-goto { display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
+    .pager-bar .pager-goto input { width:58px; padding:6px 7px; border:1px solid var(--border); border-radius:7px; text-align:center; }
     .jobs-v2-pager button {
       min-height: 32px; height: 32px; border: 1px solid #dcdfe6; border-radius: 4px;
       background: #fff; color: #606266; font: inherit; font-size: 14px;
@@ -958,6 +936,17 @@
     }
     .accounts-table-v2 .pill.status-running {
       color: #fa8c16; background: #fff7e6; border-color: #ffd591;
+    }
+    .accounts-table-v2 .plan-promo-stack {
+      display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+      width: 100%; white-space: normal;
+    }
+    .accounts-table-v2 .plan-promo-head {
+      display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
+    }
+    .accounts-table-v2 .plan-promo-stack .pill {
+      height: auto; min-height: 26px; max-width: 100%; line-height: 1.3;
+      text-align: left; white-space: normal; overflow-wrap: anywhere;
     }
     .accounts-table-v2 .acc-v2-token-copy {
       display: inline-flex; align-items: center; justify-content: center;
@@ -2712,13 +2701,18 @@
             </span>
           </label>
           <button type="button" class="acc-v2-toggle" id="showArchivedAccountsV2" aria-pressed="false" title="默认只显示未归档账号；开启后单独查看归档账号">查看归档</button>
-          <button type="button" class="acc-v2-toggle" id="showPlusAccountsOnlyV2" aria-pressed="false" title="只查询/显示已开通 Plus 的账号">已开通Plus</button>
-          <button type="button" class="acc-v2-toggle" id="showPlusTrialAccountsOnlyV2" aria-pressed="false" title="只查询/显示当前为 free 且可试用 Plus 的账号">可试用Plus</button>
-          <button type="button" class="acc-v2-toggle" id="showFreeAccountsOnlyV2" aria-pressed="false" title="只查询/显示已明确不能试用 Plus 的 free 账号；资格未知的账号不包含">free不可试用Plus</button>
+          <button type="button" class="acc-v2-toggle" id="showPlusAccountsOnlyV2" aria-pressed="false" title="只查询/显示已开通套餐的账号">已开通套餐</button>
+          <button type="button" class="acc-v2-toggle" id="showPlusTrialAccountsOnlyV2" aria-pressed="false" title="只查询/显示当前为 free 且存在 eligible_promo_campaigns 套餐优惠的账号，不限 Plus">有套餐优惠</button>
+          <label class="acc-v2-inline" title="指定 eligible_promo_campaigns 中的套餐类型；留空表示全部优惠类型">优惠类型
+            <select id="promoTypeFilterV2"><option value="">全部</option><option value="plus">Plus</option><option value="pro">Pro</option><option value="go">Go</option><option value="team">Team</option><option value="business">Business</option></select>
+          </label>
+          <label class="acc-v2-inline" title="按 eligible_promo_campaigns 优惠百分比筛选">优惠力度
+            <select id="promoDiscountFilterV2"><option value="">全部</option><option value="100">100%优惠</option></select>
+          </label>
+          <button type="button" class="acc-v2-toggle" id="showFreeAccountsOnlyV2" aria-pressed="false" title="只查询/显示已明确不能试用套餐的 free 账号；资格未知的账号不包含">free不可试用套餐</button>
           <div class="acc-v2-date-select" id="planGroupFilterWrapV2">
             <button type="button" class="acc-v2-date-select-btn" id="btnPlanGroupFilterV2" title="按「代理分组-套餐活动」筛选账号；可多选，例如 JP-free、PH-1月半价">🏷 套餐分组</button>
             <div class="acc-v2-date-select-menu pgf-menu" id="planGroupFilterMenuV2"></div>
-          </div>
           <label class="acc-v2-inline" title="按账号状态筛选账号">
             <select id="codexStatusFilterV2">
               <option value="">全部状态</option>
@@ -2791,6 +2785,7 @@
           <button type="button" class="jobs-tb-btn jobs-tb-btn--good" id="btnDownloadSelectedTxtV2" disabled title="把选中账号的完整整行保存为 TXT 文件，每个账号一行">下载TXT</button>
           <button type="button" class="jobs-tb-btn jobs-tb-btn--good" id="btnDownloadSelectedFullExportV2" disabled title="把选中账号按“邮箱---邮箱接码API---密码---https://2fa.run/----2FA:密钥”格式导出为 TXT 文件">完整导出</button>
           <button type="button" class="jobs-tb-btn jobs-tb-btn--good" id="btnCopySelectedFullExportV2" disabled title="把选中账号的“邮箱---邮箱接码API---密码---https://2fa.run/----2FA:密钥”格式复制到剪贴板">复制完整导出</button>
+          <button type="button" class="jobs-tb-btn jobs-tb-btn--good" id="btnCopySelectedLoginCredentialsV2" disabled title="把选中账号按“邮箱---密码---2FA密钥”格式复制到剪贴板">复制登录凭据</button>
           <button type="button" class="jobs-tb-btn" id="btnArchiveSelectedAccountsV2" disabled title="归档选中的账号；默认账号列表将不再查询/显示这些账号">归档选中</button>
           <button type="button" class="jobs-tb-btn jobs-tb-btn--danger" id="btnDeleteSelectedAccountsV2" disabled title="删除选中的本地账号/token记录">删除</button>
         </div>
@@ -3220,32 +3215,7 @@
     你也可以先在邮箱页面点「重新发送验证码」再查看。
   </div>
 </div>
-<div id="manualInterventionPanel" class="body hidden">
-  <h3>
-    <span class="manual-otp-badge warn" id="manualInterventionBadge">风控</span>
-    <span id="manualInterventionTitle">需要你手动完成 Cloudflare 验证</span>
-    <button class="btn" id="btnCloseManualIntervention" style="min-height:28px;">稍后处理</button>
-  </h3>
-  <div class="mi-body">
-    <div class="manual-otp-row"><span class="k">类型</span><span class="v" id="manualInterventionKind">-</span></div>
-    <div class="manual-otp-row"><span class="k">任务</span><span class="v" id="manualInterventionTask">-</span></div>
-    <div class="manual-otp-row"><span class="k">邮箱</span><span class="v" id="manualInterventionEmail">-</span>
-      <button class="btn" id="btnCopyManualInterventionEmail" style="min-height:26px;margin-left:auto;">复制</button></div>
-    <div class="manual-otp-row hidden" id="manualInterventionUrlRow"><span class="k">当前页面</span>
-      <span class="v" id="manualInterventionUrl">-</span>
-      <button class="btn" id="btnCopyManualInterventionUrl" style="min-height:26px;margin-left:auto;">复制</button></div>
-    <div class="manual-otp-row"><span class="k">剩余时间</span><span class="v" id="manualInterventionCountdown">-</span></div>
-    <div class="mi-status" id="manualInterventionStatus">-</div>
-    <div class="mi-hint" id="manualInterventionHint"></div>
-  </div>
-  <div class="mi-foot">
-    <button class="btn primary" id="btnManualInterventionAck">我已处理完成（立即复检）</button>
-    <button class="btn" id="btnManualInterventionLog">查看任务日志</button>
-    <button class="btn" id="btnManualInterventionNotify" style="min-height:28px;">开启浏览器提醒</button>
-    <span class="spacer"></span>
-    <button class="btn" id="btnManualInterventionCancel">取消本次任务</button>
-  </div>
-</div>
+
 <div id="clientErrorPanel" class="body hidden">
   <h3>
     <span class="err-dialog-badge" id="clientErrorBadge">!</span>
@@ -3311,7 +3281,12 @@ function _renderPager(id, total) {
     <button onclick="pagerGo('${id}',1)"${p.page >= totalPages ? ' disabled' : ''}>下一页 →</button>
     <select onchange="pagerSetSize('${id}',this.value)">${sizes.map(s =>
       `<option value="${s}"${p.size === s ? ' selected' : ''}>${s} 条/页</option>`
-    ).join('')}</select>`;
+    ).join('')}</select>
+    ${id === 'accounts' ? `<label class="pager-goto">前往
+      <input type="number" min="1" max="${totalPages}" value="${p.page}" inputmode="numeric"
+        onkeydown="if(event.key==='Enter'){pagerJump('${id}',this.value);event.preventDefault();}">
+      页 <button type="button" onclick="pagerJump('${id}',this.previousElementSibling.value)">跳转</button>
+    </label>` : ''}`;
   const el = document.getElementById('pager-' + id);
   if (el) el.innerHTML = html;
 
@@ -3352,9 +3327,8 @@ function _renderPager(id, total) {
         </div>
         <label class="pager-goto">前往
           <input type="number" min="1" max="${totalPages}" value="${p.page}" inputmode="numeric"
-            onkeydown="if(event.key==='Enter'){pagerJump('${id}',this.value);event.preventDefault();}"
-            onchange="pagerJump('${id}',this.value)">
-          页
+            onkeydown="if(event.key==='Enter'){pagerJump('${id}',this.value);event.preventDefault();}">
+          页 <button type="button" onclick="pagerJump('${id}',this.previousElementSibling.value)">跳转</button>
         </label>`;
     }
   }
@@ -3607,8 +3581,6 @@ function bindJobsBodyEvents(bodyEl) {
     if (stopBtn) { stopJob(parseInt(stopBtn.dataset.stopJob, 10), stopBtn); return; }
     const otpBtn = e.target.closest('[data-submit-otp-job]');
     if (otpBtn) { submitManualOtpForJob(otpBtn); return; }
-    const cfBtn = e.target.closest('[data-cf-open]');
-    if (cfBtn) { reopenManualInterventionForJob(parseInt(cfBtn.dataset.cfOpen, 10)); return; }
     const retryBtn = e.target.closest('[data-retry-job]');
     if (retryBtn) {
       if (retryBtn.dataset.pointerHandled === '1') {
@@ -3680,12 +3652,11 @@ function renderJobs() {
       const completedFull = formatDateTime(j.completed_at);
       const err = j.error_message || '';
       const manualOtp = j.status === 'running' && j.email && j.manual_otp_required;
-      const cfPending = manualInterventionItemForJob(j.id);
       return `
       <tr>
         <td class="col-check"><input type="checkbox" class="job-row-check" data-job-id="${esc(j.id)}" ${JOB_SELECTED.has(Number(j.id)) ? 'checked' : ''} ${running ? 'disabled title="运行中的任务不能选择"' : ''}></td>
         <td class="col-id">#${esc(j.id)}${j.parent_job_id ? `<div class="sub-cell" title="重试自任务 #${esc(j.parent_job_id)}，第 ${esc(j.retry_attempt || 1)} 次重试">↳ #${esc(j.parent_job_id)}${Number(j.retry_attempt) > 1 ? ' ·' + esc(j.retry_attempt) : ''}</div>` : ''}</td>
-        <td class="col-status">${pillV2(j.display_status || j.status)}${cfPending ? `<button type="button" class="cf-badge" data-cf-open="${esc(j.id)}" title="页面被 Cloudflare 风控接管，需要你到指纹浏览器窗口里手动处理（点这里重新打开提醒）">风控待处理</button>` : ''}</td>
+        <td class="col-status">${pillV2(j.display_status || j.status)}</td>
         <td class="col-email" title="${esc(j.email || '-')}">${esc(j.email || '-')}</td>
         <td class="col-time" title="${esc(startedFull)}">${esc(started)}</td>
         <td class="col-time" title="${esc(completedFull)}">${esc(completed)}</td>
@@ -3756,7 +3727,6 @@ function updateModalScrollLock() {
     || !$('#qrPanel').classList.contains('hidden')
     || !$('#pgmEditPanel').classList.contains('hidden')
     || !$('#manualOtpPanel').classList.contains('hidden')
-    || !$('#manualInterventionPanel').classList.contains('hidden')
     || !$('#clientErrorPanel').classList.contains('hidden')
     || !$('#outlookImportModal').classList.contains('hidden')
     || !$('#emailChangeModalV2').classList.contains('hidden');
@@ -4185,7 +4155,11 @@ function getCodexBulkWorkers() {
 }
 function getAccountsPlanFilter() {
   if (SHOW_PLUS_ACCOUNTS_ONLY) return 'plus';
-  if (SHOW_PLUS_TRIAL_ACCOUNTS_ONLY) return 'plus_trial';
+  if (SHOW_PLUS_TRIAL_ACCOUNTS_ONLY) {
+    const type = (document.getElementById('promoTypeFilterV2')?.value || '').trim().toLowerCase();
+    const discount = (document.getElementById('promoDiscountFilterV2')?.value || '').trim();
+    return (type || discount) ? `promo:${type || '*'}:${discount}` : 'promo';
+  }
   if (SHOW_FREE_ACCOUNTS_ONLY) return 'free_no_trial';
   return '';
 }
@@ -4491,6 +4465,41 @@ function _planGroupTagsCell(r) {
   }
   // 全部分组都失败：交给外层按账号整体状态渲染错误。
   return '';
+function _promoPlanName(key, campaign) {
+  const meta = (campaign && typeof campaign === 'object' && campaign.metadata && typeof campaign.metadata === 'object') ? campaign.metadata : {};
+  const raw = String(meta.plan_name || key || '套餐').trim();
+  const known = {
+    chatgptplusplan:'Plus', chatgptproplan:'Pro', chatgptteamplan:'Team',
+    chatgptbusinessplan:'Business', chatgptgoplan:'Go', plus:'Plus', pro:'Pro',
+    team:'Team', business:'Business', go:'Go'
+  };
+  const normalized = raw.toLowerCase().replace(/[\s_-]/g, '');
+  if (known[normalized]) return known[normalized];
+  return raw.replace(/^chatgpt/i, '').replace(/plan$/i, '') || raw;
+}
+function _promoDurationLabel(duration) {
+  if (!duration || typeof duration !== 'object' || duration.num_periods == null) return '';
+  const n = duration.num_periods;
+  const period = String(duration.period || '').toLowerCase();
+  const unit = period === 'month' ? '个月' : period === 'year' ? '年' : period === 'week' ? '周' : period === 'day' ? '天' : period;
+  return `${n}${unit}`;
+}
+function _promoSummaries(campaigns) {
+  if (!campaigns || typeof campaigns !== 'object') return [];
+  return Object.entries(campaigns).map(([key, campaign]) => {
+    const meta = (campaign && typeof campaign === 'object' && campaign.metadata && typeof campaign.metadata === 'object') ? campaign.metadata : {};
+    const percentage = meta.discount && meta.discount.percentage;
+    const offer = percentage !== undefined && percentage !== null && percentage !== ''
+      ? (Number(percentage) === 100 ? '免费' : `${percentage}%折扣`)
+      : String(meta.promotion_type_label || meta.title || (campaign && campaign.id) || '有优惠');
+    const duration = _promoDurationLabel(meta.duration);
+    return `${_promoPlanName(key, campaign)}：${offer}${duration ? `/${duration}` : ''}`;
+  });
+}
+function _promoStackHtml(baseText, baseClass, summaries, title, detailBtn = '') {
+  const base = `<span class="pill ${baseClass}" title="${esc(title)}">${esc(baseText)}</span>`;
+  const lines = summaries.map(item => `<span class="pill status-success" title="${esc(item)}">${esc(item)}</span>`).join('');
+  return `<div class="plan-promo-stack"><div class="plan-promo-head">${base}${detailBtn}</div>${lines}</div>`;
 }
 function _planCell(r) {
   const ok = r.plan_check_ok;
@@ -4502,6 +4511,8 @@ function _planCell(r) {
     route === 'direct_fallback' ? `网络: 直连回退${r.plan_check_proxy_fallback_reason ? ` (${r.plan_check_proxy_fallback_reason})` : ''}` :
     route === 'direct' ? '网络: 直连' : '';
   const title = [err ? esc(err) : checked, routeLabel].filter(Boolean).join('；');
+  const campaigns = (r.eligible_promo_campaigns && typeof r.eligible_promo_campaigns === 'object') ? r.eligible_promo_campaigns : {};
+  const promoSummaries = _promoSummaries(campaigns);
   if (['queued','running'].includes(r.plan_check_status)) {
     const automatic = r.plan_check_trigger === 'registration_auto';
     const queued = r.plan_check_status === 'queued';
@@ -4517,7 +4528,7 @@ function _planCell(r) {
   if (err || r.plan_check_status === 'failed') {
     const reason = err || '套餐查询失败，未返回具体原因';
     const hasLastSuccess = Boolean(r.plan_last_success_at);
-    const lastPlan = hasLastSuccess ? `${plan}${r.plus_trial_eligible ? '/可Plus试用' : ''}` : '';
+    const lastPlan = hasLastSuccess ? `${plan}${promoSummaries.length ? `（${promoSummaries.join('；')}）` : ''}` : '';
     const lastText = lastPlan ? `（上次: ${lastPlan}）` : '';
     const lastTitle = hasLastSuccess ? `上次成功: ${esc(r.plan_last_success_at)}` : '';
     return `<div class="extract-link-cell"><span class="pill status-failed" title="${[esc(reason), lastTitle].filter(Boolean).join('；')}">查询失败${esc(lastText)}</span><div class="extract-link-error" title="${esc(reason)}">${esc(reason)}</div></div>`;
@@ -4529,10 +4540,11 @@ function _planCell(r) {
     if (!checkedOk) {
       return `<span class="pill status-running" title="${title}">${esc(plan)}（待查资格）</span>`;
     }
-    const text = r.plus_trial_eligible ? 'free(可Plus试用)' : 'free';
-    const cls = r.plus_trial_eligible ? 'status-success' : 'status-used';
-    const t = r.plus_trial_eligible ? `${title}；Plus 试用资格可用` : title;
-    return `<span class="pill ${cls}" title="${t}">${esc(text)}</span>`;
+    const cls = promoSummaries.length ? 'status-success' : 'status-used';
+    const t = promoSummaries.length ? `${title}；可用套餐优惠：${promoSummaries.join('；')}` : title;
+    const keys = Object.keys(campaigns);
+    const detailBtn = keys.length ? `<button type="button" class="promo-detail-btn" data-promo-details="${esc(JSON.stringify(campaigns))}">详情(${keys.length})</button>` : '';
+    return _promoStackHtml('free', cls, promoSummaries, t, detailBtn);
   }
 
   const cls = 'status-success';
@@ -4551,7 +4563,7 @@ function _planCell(r) {
   if (r.plan_renews_at) detail.push(`续费时间: ${r.plan_renews_at}`);
   if (r.discount_expires_at) detail.push(`折扣结束: ${r.discount_expires_at}`);
   if (r.discount_promo_campaign_id) detail.push(`优惠: ${r.discount_promo_campaign_id}`);
-  return `<span class="pill ${cls}" title="${esc(detail.join('；'))}">${esc(text)}</span>`;
+  return _promoStackHtml(text, cls, promoSummaries, detail.join('；'));
 }
 function _fmtExtractExpire(v) {
   if (!v) return '';
@@ -4713,7 +4725,7 @@ function updateAccountSelectionUi(pageRows = null) {
     'btnCheckSelectedPlansV2', 'btnExtractSelectedLinksV2',
     'btnRetrySelectedCodexV2', 'btnDownloadSelectedCpaV2', 'btnStopSelectedCodexV2',
     'btnSetupSelectedTotpV2', 'btnChangeSelectedEmailsV2', 'btnNoteSelectedAccountsV2', 'btnCopySelectedLinesV2', 'btnCopySelectedTokensV2', 'btnCopySelectedEmailsV2',
-    'btnDownloadSelectedTxtV2', 'btnDownloadSelectedFullExportV2', 'btnCopySelectedFullExportV2', 'btnArchiveSelectedAccountsV2', 'btnDeleteSelectedAccountsV2',
+    'btnDownloadSelectedTxtV2', 'btnDownloadSelectedFullExportV2', 'btnCopySelectedFullExportV2', 'btnCopySelectedLoginCredentialsV2', 'btnArchiveSelectedAccountsV2', 'btnDeleteSelectedAccountsV2',
   ];
   v2Ids.forEach(id => {
     const el = document.getElementById(id);
@@ -5256,6 +5268,14 @@ async function refreshAccountsList(btn) {
   if (plusTrialV2) plusTrialV2.addEventListener('click', () => {
     applyAccountsPlusTrialFilter(!SHOW_PLUS_TRIAL_ACCOUNTS_ONLY);
   });
+  const promoTypeV2 = $('#promoTypeFilterV2');
+  if (promoTypeV2) promoTypeV2.addEventListener('change', () => {
+    applyAccountsPlusTrialFilter(true);
+  });
+  const promoDiscountV2 = $('#promoDiscountFilterV2');
+  if (promoDiscountV2) promoDiscountV2.addEventListener('change', () => {
+    applyAccountsPlusTrialFilter(true);
+  });
   const freeV2 = $('#showFreeAccountsOnlyV2');
   if (freeV2) freeV2.addEventListener('click', () => {
     applyAccountsFreeFilter(!SHOW_FREE_ACCOUNTS_ONLY);
@@ -5589,6 +5609,18 @@ async function copySelectedAccountFullExport() {
   if (!lines.length) { showToast('选中账号没有可复制内容'); return; }
   copyText(lines.join('\n'));
   showToast(`已复制 ${lines.length} 个账号完整导出`);
+}
+
+async function copySelectedAccountLoginCredentials() {
+  const ids = Array.from(ACCOUNT_SELECTED).map(Number);
+  if (!ids.length) { showToast('请先选择账号'); return; }
+  let lines = [];
+  try {
+    lines = await fetchAccountSecrets(ids, 'login_credentials');
+  } catch(err) { showToast('复制登录凭据失败: ' + err.message); return; }
+  if (!lines.length) { showToast('选中账号没有可复制的登录凭据'); return; }
+  copyText(lines.join('\n'));
+  showToast(`已复制 ${lines.length} 个账号登录凭据`);
 }
 
 async function downloadSelectedCpa() {
@@ -6211,6 +6243,7 @@ $('#emailChangeModalV2').addEventListener('click', e => { if (e.target.id === 'e
   bind('btnDownloadSelectedTxtV2', downloadSelectedAccountTxt);
   bind('btnDownloadSelectedFullExportV2', downloadSelectedAccountFullExport);
   bind('btnCopySelectedFullExportV2', copySelectedAccountFullExport);
+  bind('btnCopySelectedLoginCredentialsV2', copySelectedAccountLoginCredentials);
   bind('btnArchiveSelectedAccountsV2', archiveSelectedAccounts);
   bind('btnDeleteSelectedAccountsV2', deleteSelectedAccounts);
 })();
@@ -7068,10 +7101,11 @@ function emailConfigSectionForKey(key) {
 }
 
 function smsConfigSectionForKey(key) {
-  if (['SMS_PROVIDER','SMS_COUNTRY','SMS_SERVICE','SMS_MAX_RETRIES','SMS_CODE_WAIT'].includes(key)) {
-    return ['通用接码', '接码通道选择、国家/服务代码、等待和重试参数；H 通道可复用 SMS_SERVICE/SMS_COUNTRY 作为 projectId/country'];
+  if (['SMS_PROVIDER','SMS_COUNTRY','SMS_SERVICE','SMS_MAX_PRICE','SMS_MAX_RETRIES','SMS_CODE_WAIT'].includes(key)) {
+    return ['通用接码', '接码通道选择、国家/服务代码、价格、等待和重试参数；SMSBower 的 OpenAI 服务代码为 dr，openai/chatgpt 会自动转换'];
   }
   if (key === 'SMS_API_KEY') return ['GrizzlySMS', 'GrizzlySMS 平台 API Key 配置'];
+  if (key.startsWith('SMSBOWER_')) return ['SMSBower', 'SMSBower handler_api、V2取号和供应商/价格筛选配置'];
   if (key.startsWith('H_')) return ['H 接码', 'H_API.md 本地 H 取号服务配置；项目ID/国家留空时复用通用字段'];
   if (key.startsWith('L_')) return ['L 接码', 'L_API.md 本地 L 取号服务配置'];
   return ['其他接码配置', ''];
@@ -8030,7 +8064,6 @@ function configSectionIntro(name) {
   if (name === '接码平台') return '接码通道、国家代码与本地取号服务参数。';
   if (name === '人工节奏') return '注册流程中的随机停顿节奏。';
   if (name === '浏览器画像') return '浏览器语言、时区、出口 IP 画像与注册省流量设置。';
-  if (name === '风控 / 人工处理') return '页面被 Cloudflare 风控接管时，弹框提醒你手动处理，并定时复检页面是否恢复正常。';
   if (name === '代理池') return '代理列表与套餐/Agent 网络模式。';
   if (name === '提链') return '提链服务地址、CDK 与并发参数。';
   return '';
@@ -8101,6 +8134,15 @@ function getAutoPlanCheckValue() {
   const fv = Object.prototype.hasOwnProperty.call(CONFIG_PENDING_UPDATES, f.key) ? CONFIG_PENDING_UPDATES[f.key] : f.value;
   return !!fv;
 }
+function getProtocolFingerprintReuseField() {
+  return (CONFIG || []).find(f => f.key === 'PROTOCOL_REUSE_FINGERPRINT_BY_EMAIL') || null;
+}
+function getProtocolFingerprintReuseValue() {
+  const f = getProtocolFingerprintReuseField();
+  if (!f) return false;
+  const fv = Object.prototype.hasOwnProperty.call(CONFIG_PENDING_UPDATES, f.key) ? CONFIG_PENDING_UPDATES[f.key] : f.value;
+  return !!fv;
+}
 function registrationDriverLabel(value) {
   const cur = String(value || '').trim().toLowerCase();
   const hit = registrationDriverChoices().find(c => String(c.value) === cur);
@@ -8154,7 +8196,7 @@ function renderRegistrationDriverCard() {
     labelEl.textContent = label;
     labelEl.classList.toggle('is-placeholder', !label || label === '—');
   }
-  if (hintEl) hintEl.textContent = `驱动标识: ${cur} · 自动查套餐: ${getAutoPlanCheckValue() ? '开' : '关'}`;
+  if (hintEl) hintEl.textContent = `驱动标识: ${cur} · 自动查套餐: ${getAutoPlanCheckValue() ? '开' : '关'} · 协议指纹: ${getProtocolFingerprintReuseValue() ? '同邮箱保持' : '每次新建'}`;
 }
 function renderRegistrationDriverField(f) {
   return `
@@ -8168,14 +8210,16 @@ function renderRegistrationDriverField(f) {
 function renderRegistrationSettingsSection(fields) {
   const driver = fields.find(f => f.key === 'REGISTRATION_DRIVER') || fields[0];
   const autoPlan = fields.find(f => f.key === 'AUTO_PLAN_CHECK_AFTER_REGISTER');
-  // 「人工介入超时时间」(MANUAL_OTP_TIMEOUT)：自动取码失败转手动输入验证码、
-  // 页面被 Cloudflare 风控接管需要手动处理，这两种人工介入共用这一个等待上限。
   const manualTimeout = fields.find(f => f.key === 'MANUAL_OTP_TIMEOUT');
+  const reuseFingerprint = fields.find(f => f.key === 'PROTOCOL_REUSE_FINGERPRINT_BY_EMAIL');
   return `
     <div class="config-section-v2-body config-section-v2-body--single">
       ${driver ? renderRegistrationDriverField(driver) : '<div class="banner warn">未找到注册方式配置项</div>'}
     </div>
-    ${autoPlan ? `<div class="config-switches-v2" style="margin-top:14px;">${renderFeatureSwitchField(autoPlan, { withIcon: false })}</div>` : ''}
+    ${(autoPlan || reuseFingerprint) ? `<div class="config-switches-v2" style="margin-top:14px;">
+      ${autoPlan ? renderFeatureSwitchField(autoPlan, { withIcon: false }) : ''}
+      ${reuseFingerprint ? renderFeatureSwitchField(reuseFingerprint, { withIcon: false }) : ''}
+    </div>` : ''}
     ${manualTimeout ? `<div class="config-section-v2-body config-section-v2-body--single" style="margin-top:14px;">${renderConfigPlainFieldV2(manualTimeout)}</div>` : ''}
   `;
 }
@@ -8230,7 +8274,9 @@ function renderConfigPlainFieldV2(f) {
   if (f.render === 'hidden') return '';
   const fv = Object.prototype.hasOwnProperty.call(CONFIG_PENDING_UPDATES, f.key) ? CONFIG_PENDING_UPDATES[f.key] : f.value;
   let control = '';
-  if (f.type === 'int') {
+  if (Array.isArray(f.choices) && f.choices.length) {
+    control = `<select data-key="${attrEsc(f.key)}">${f.choices.map(item => `<option value="${attrEsc(item.value)}"${String(fv) === String(item.value) ? ' selected' : ''}>${esc(item.label || item.value)}</option>`).join('')}</select>`;
+  } else if (f.type === 'int') {
     control = `<input type="number" data-key="${attrEsc(f.key)}" value="${attrEsc(fv == null ? '' : fv)}">`;
   } else if (f.type === 'float') {
     control = `<input type="number" step="0.1" data-key="${attrEsc(f.key)}" value="${attrEsc(fv == null ? '' : fv)}">`;
@@ -8528,12 +8574,15 @@ function renderConfigSectionV2(name, fields) {
       .map(k => fields.find(f => f.key === k))
       .filter(Boolean)
       .concat(fields.filter(f => !preferred.includes(f.key)));
+    const switches = ordered.filter(f => f.type === 'bool');
+    const inputs = ordered.filter(f => f.type !== 'bool');
     return `
       <section class="config-section-v2" id="${esc(slug)}" data-config-section="${esc(name)}">
         ${renderConfigSectionHead(name, '')}
         <div class="config-switches-v2">
-          ${ordered.map(f => renderFeatureSwitchField(f, { withIcon: true })).join('')}
+          ${switches.map(f => renderFeatureSwitchField(f, { withIcon: true })).join('')}
         </div>
+        ${inputs.length ? `<div class="config-section-v2-body">${inputs.map(renderConfigPlainFieldV2).join('')}</div>` : ''}
         <div class="config-section-v2-actions">
           <button type="button" class="btn primary" data-save-config-v2>保存</button>
         </div>
@@ -8569,7 +8618,7 @@ function renderConfigSectionV2(name, fields) {
       name,
       fields,
       smsConfigSectionForKey,
-      ['通用接码', 'GrizzlySMS', 'H 接码', 'L 接码', '其他接码配置'],
+      ['通用接码', 'GrizzlySMS', 'SMSBower', 'H 接码', 'L 接码', '其他接码配置'],
       { get: () => CONFIG_SMS_ACTIVE_SECTION_V2, set: v => { CONFIG_SMS_ACTIVE_SECTION_V2 = v; } },
       'sms-section-v2'
     );
@@ -8772,8 +8821,14 @@ function readConfigElementValue(el, f) {
     if (el.type === 'checkbox') return !!el.checked;
     return el.value === 'true';
   }
-  if (f.type === 'int') return parseInt(el.value || '0', 10);
-  if (f.type === 'float') return parseFloat(el.value || '0');
+  if (f.type === 'int') {
+    const value = parseInt(String(el.value || '').trim(), 10);
+    return Number.isFinite(value) ? value : Number(f.value || 0);
+  }
+  if (f.type === 'float') {
+    const value = parseFloat(String(el.value || '').trim());
+    return Number.isFinite(value) ? value : Number(f.value || 0);
+  }
   return isPlaceholderEmpty(el.value) ? '' : el.value.trim();
 }
 
@@ -8783,7 +8838,7 @@ function trackConfigFieldChange(e) {
   const f = CONFIG.find(x => x.key === el.dataset.key);
   if (!f) return;
   CONFIG_PENDING_UPDATES[f.key] = readConfigElementValue(el, f);
-  if (f.key === 'AUTO_PLAN_CHECK_AFTER_REGISTER') renderRegistrationDriverCard();
+  if (f.key === 'AUTO_PLAN_CHECK_AFTER_REGISTER' || f.key === 'PROTOCOL_REUSE_FINGERPRINT_BY_EMAIL') renderRegistrationDriverCard();
 }
 $('#tab-config').addEventListener('input', trackConfigFieldChange);
 $('#tab-config').addEventListener('change', trackConfigFieldChange);
@@ -9059,278 +9114,6 @@ if ($('#manualOtpPanel')) {
   updateManualOtpNotifyBtn();
 }
 
-// ---------- Cloudflare 风控人工处理（弹框提醒 + 定时复检进度） ----------
-// 注册/授权过程中页面被 Cloudflare 接管（“Verify you are human” 复选框、Just a moment
-// 验证页、Attention Required 拦截页）时，脚本点不了跨域验证框，会先登记一条
-// 「等待人工处理」：这里轮询到后弹框 + 桌面提醒，后端按配置间隔定时复检页面是否恢复，
-// 恢复后流程自动继续。用户也可以点「我已处理完成」立即触发一次复检，或点「取消本次任务」。
-let MI_ITEMS = [];
-let MI_CURRENT = null;
-let MI_SYNCED_AT = 0;
-let MI_TIMER = null;
-let MI_TICK_TIMER = null;
-let MI_TITLE_TIMER = null;
-const MI_NOTIFIED = new Set();
-const MI_DISMISSED = new Set();
-
-function manualInterventionNotifySupported() { return typeof Notification !== 'undefined'; }
-
-function updateManualInterventionNotifyBtn() {
-  const btn = $('#btnManualInterventionNotify');
-  if (!btn) return;
-  if (!manualInterventionNotifySupported()) { btn.textContent = '浏览器不支持提醒'; btn.disabled = true; return; }
-  if (Notification.permission === 'granted') { btn.textContent = '浏览器提醒已开启'; btn.disabled = true; }
-  else if (Notification.permission === 'denied') { btn.textContent = '浏览器提醒已被禁用'; btn.disabled = true; }
-  else { btn.textContent = '开启浏览器提醒'; btn.disabled = false; }
-}
-
-async function requestManualInterventionNotify() {
-  if (!manualInterventionNotifySupported()) { showToast('当前浏览器不支持桌面提醒'); return; }
-  try { await Notification.requestPermission(); } catch (e) { /* 需要用户手势，忽略 */ }
-  updateManualOtpNotifyBtn();
-  updateManualInterventionNotifyBtn();
-  showToast(Notification.permission === 'granted'
-    ? '已开启浏览器提醒：需要你手动处理风控时会通知你'
-    : '未开启浏览器提醒（可稍后在浏览器地址栏权限里打开）');
-}
-
-function notifyManualIntervention(item) {
-  if (!manualInterventionNotifySupported() || Notification.permission !== 'granted') return;
-  try {
-    const lines = [item.kind_label || 'Cloudflare 风控', item.task || '', item.email || ''].filter(Boolean);
-    const n = new Notification('需要你在浏览器窗口里手动处理', {
-      body: lines.join('\n'),
-      tag: 'manual-intervention-' + (item.request_id || ''),
-      requireInteraction: true,
-    });
-    n.onclick = () => {
-      try { window.focus(); } catch (e) {}
-      MI_DISMISSED.delete(item.request_id || '');
-      openManualInterventionPanel(true);
-      showManualInterventionPanel();
-      n.close();
-    };
-  } catch (e) { /* 通知失败不影响弹框 */ }
-}
-
-function startManualInterventionTitleFlash() {
-  if (MI_TITLE_TIMER) return;
-  let on = false;
-  MI_TITLE_TIMER = setInterval(() => {
-    if (MANUAL_OTP_TITLE_TIMER) return;   // 让位给验证码闪烁，避免两者互相刷标题
-    on = !on;
-    document.title = on ? '【需处理风控】' + MANUAL_OTP_BASE_TITLE : MANUAL_OTP_BASE_TITLE;
-  }, 1200);
-}
-
-function stopManualInterventionTitleFlash() {
-  if (MI_TITLE_TIMER) { clearInterval(MI_TITLE_TIMER); MI_TITLE_TIMER = null; }
-  if (!MANUAL_OTP_TITLE_TIMER) document.title = MANUAL_OTP_BASE_TITLE;
-}
-
-function miItemById(id) {
-  if (!id) return null;
-  return MI_ITEMS.find(x => (x.request_id || '') === id) || null;
-}
-
-// 任务表里的"风控待处理"小徽标（点它重新打开弹框提醒）
-let MI_JOBS_SEEN = '';
-
-function manualInterventionItemForJob(jobId) {
-  if (jobId === null || jobId === undefined) return null;
-  return MI_ITEMS.find(x => Number(x.job_id) === Number(jobId) && x.status !== 'recovered') || null;
-}
-
-function reopenManualInterventionForJob(jobId) {
-  const item = manualInterventionItemForJob(jobId);
-  if (!item) { showToast('该任务当前没有待处理的 Cloudflare 风控'); return; }
-  MI_DISMISSED.delete(item.request_id || '');
-  renderManualInterventionPanel(item, MI_ITEMS.length);
-  openManualInterventionPanel(true);
-}
-
-function syncManualInterventionJobsBadge() {
-  const ids = MI_ITEMS.map(x => String(x.job_id || '')).filter(Boolean).sort().join(',');
-  if (ids === MI_JOBS_SEEN) return;
-  MI_JOBS_SEEN = ids;
-  const regTab = $('#tab-register');
-  if (regTab && !regTab.classList.contains('hidden')) refreshJobs();
-}
-
-function showManualInterventionPanel() {
-  if (!MI_CURRENT) return;
-  $('#manualInterventionPanel').classList.remove('hidden');
-  updateModalScrollLock();
-}
-
-function openManualInterventionPanel(force = false) {
-  if (!MI_CURRENT) return;
-  const id = MI_CURRENT.request_id || '';
-  if (!force && MI_DISMISSED.has(id)) return;
-  showManualInterventionPanel();
-}
-
-function closeManualInterventionPanel() {
-  if (MI_CURRENT) MI_DISMISSED.add(MI_CURRENT.request_id || '');
-  $('#manualInterventionPanel').classList.add('hidden');
-  updateModalScrollLock();
-}
-
-function updateManualInterventionCountdown() {
-  const el = $('#manualInterventionCountdown');
-  if (!el || !MI_CURRENT) return;
-  const base = MI_CURRENT.remaining;
-  if (typeof base !== 'number') { el.textContent = '不限时'; el.style.color = ''; return; }
-  const left = Math.max(0, base - Math.round((Date.now() - MI_SYNCED_AT) / 1000));
-  const m = Math.floor(left / 60);
-  const s = left % 60;
-  el.textContent = `${m} 分 ${String(s).padStart(2, '0')} 秒后超时（页面恢复后会立即继续）`;
-  el.style.color = left <= 60 ? '#b3261e' : '';
-}
-
-function renderManualInterventionPanel(item, queueLen) {
-  MI_CURRENT = item;
-  $('#manualInterventionTitle').textContent = item.title || '需要人工处理';
-  $('#manualInterventionKind').textContent = item.kind_label || item.kind || '-';
-  const jobText = item.job_id ? `#${item.job_id}${item.task ? ' · ' + item.task : ''}` : (item.task || '-');
-  $('#manualInterventionTask').textContent = jobText;
-  $('#manualInterventionEmail').textContent = item.email || '-';
-
-  const url = String(item.url || '').trim();
-  $('#manualInterventionUrlRow').classList.toggle('hidden', !url);
-  if (url) $('#manualInterventionUrl').textContent = url;
-
-  const badge = $('#manualInterventionBadge');
-  if (queueLen > 1) { badge.classList.remove('hidden'); badge.textContent = `共 ${queueLen} 个待处理`; }
-  else { badge.classList.add('hidden'); badge.textContent = '风控'; }
-
-  const st = $('#manualInterventionStatus');
-  const cls = item.status === 'recovered' ? ' is-ok' : (item.status === 'timeout' ? ' is-bad' : '');
-  st.className = 'mi-status' + cls;
-  st.textContent = [
-    item.status_text || '',
-    item.checks ? `已定时复检 ${item.checks} 次` : '',
-    item.detail ? `复检结果：${item.detail}` : '',
-  ].filter(Boolean).join('\n');
-
-  $('#manualInterventionHint').textContent = item.guide || '';
-
-  const done = item.status === 'recovered' || item.status === 'timeout';
-  $('#btnManualInterventionAck').classList.toggle('hidden', done);
-  $('#btnManualInterventionCancel').classList.toggle('hidden', done);
-
-  updateManualInterventionCountdown();
-}
-
-async function pollManualIntervention() {
-  let items = [];
-  try {
-    const r = await api('/api/manual-intervention/pending');
-    items = (r.items || []).filter(x => x.status !== 'cancelled');
-  } catch (e) {
-    return; // 网络抖动/重启中忽略，下次轮询再试
-  }
-  MI_ITEMS = items;
-
-  if (!items.length) {
-    MI_CURRENT = null;
-    stopManualInterventionTitleFlash();
-    $('#manualInterventionPanel').classList.add('hidden');
-    updateModalScrollLock();
-    syncManualInterventionJobsBadge();
-    return;
-  }
-
-  // 当前项已结束（被别处确认/取消/超时）→ 切到剩余的第一个
-  if (MI_CURRENT && !miItemById(MI_CURRENT.request_id || '')) MI_CURRENT = null;
-  const target = MI_CURRENT
-    ? miItemById(MI_CURRENT.request_id)
-    : (items.find(x => x.status !== 'recovered') || items[0]);
-  if (!target) return;
-
-  MI_SYNCED_AT = Date.now();
-  renderManualInterventionPanel(target, items.length);
-
-  // 每个请求只提醒一次，避免每次轮询都轰炸
-  for (const it of items) {
-    const key = it.request_id || '';
-    if (MI_NOTIFIED.has(key)) continue;
-    MI_NOTIFIED.add(key);
-    notifyManualIntervention(it);
-  }
-  for (const id of Array.from(MI_DISMISSED)) {
-    if (!items.some(x => (x.request_id || '') === id)) MI_DISMISSED.delete(id);
-  }
-
-  openManualInterventionPanel();
-  if (target.status === 'recovered') stopManualInterventionTitleFlash();
-  else startManualInterventionTitleFlash();
-  syncManualInterventionJobsBadge();
-}
-
-async function ackManualIntervention() {
-  const item = MI_CURRENT;
-  if (!item) return;
-  const btn = $('#btnManualInterventionAck');
-  btn.disabled = true;
-  try {
-    const r = await api('/api/manual-intervention/ack', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ request_id: item.request_id }),
-    });
-    showToast(r.ok ? '已通知脚本立即复检页面' : (r.error || '提交失败'));
-    if (r.ok) MI_DISMISSED.delete(item.request_id || '');
-  } catch (e) {
-    showToast('提交失败: ' + e.message);
-  } finally {
-    btn.disabled = false;
-  }
-  await pollManualIntervention();
-}
-
-async function cancelManualIntervention() {
-  const item = MI_CURRENT;
-  if (!item) return;
-  const who = item.email || (item.job_id ? `任务 #${item.job_id}` : '该任务');
-  if (!confirm(`确定取消？\n\n${who}\n类型：${item.kind_label || '-'}\n\n对应任务会立即失败。`)) return;
-  try {
-    const r = await api('/api/manual-intervention/cancel', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ request_id: item.request_id, reason: '用户在 WebUI 取消人工处理' }),
-    });
-    showToast(r.ok ? '已取消人工处理，任务将立即失败' : (r.error || '取消失败'));
-    MI_CURRENT = null;
-  } catch (e) {
-    showToast('取消失败: ' + e.message);
-  }
-  await pollManualIntervention();
-}
-
-function openManualInterventionLog() {
-  const item = MI_CURRENT;
-  if (!item) return;
-  if (item.job_id) { openLog(item.job_id); return; }
-  showToast('该请求没有关联注册任务，可在任务列表里查看日志');
-}
-
-if ($('#manualInterventionPanel')) {
-  $('#btnCloseManualIntervention').addEventListener('click', closeManualInterventionPanel);
-  $('#btnManualInterventionAck').addEventListener('click', ackManualIntervention);
-  $('#btnManualInterventionCancel').addEventListener('click', cancelManualIntervention);
-  $('#btnManualInterventionLog').addEventListener('click', openManualInterventionLog);
-  $('#btnManualInterventionNotify').addEventListener('click', requestManualInterventionNotify);
-  $('#btnCopyManualInterventionEmail').addEventListener('click', () => copyText(MI_CURRENT?.email || ''));
-  $('#btnCopyManualInterventionUrl').addEventListener('click', () => copyText(MI_CURRENT?.url || ''));
-  updateManualInterventionNotifyBtn();
-  document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape') return;
-    const panel = $('#manualInterventionPanel');
-    if (panel && !panel.classList.contains('hidden')) closeManualInterventionPanel();
-  });
-}
-
 // ---------- 侧边栏展开/收起 ----------
 function bindSidebarCollapse() {
   const btn = document.getElementById('btnSidebarCollapse');
@@ -9362,14 +9145,11 @@ loadSummary();
 MANUAL_OTP_TIMER = setInterval(pollManualOtp, 3000);
 MANUAL_OTP_TICK_TIMER = setInterval(updateManualOtpCountdown, 1000);
 pollManualOtp();
-// Cloudflare 风控人工处理：同样 3 秒轮询一次，1 秒刷新剩余时间
-MI_TIMER = setInterval(pollManualIntervention, 3000);
-MI_TICK_TIMER = setInterval(updateManualInterventionCountdown, 1000);
-pollManualIntervention();
 activateTab(localStorage.getItem('gpt_console_active_tab') || 'register', false);
 jobsTimer = setInterval(() => { if (!$('#tab-register').classList.contains('hidden')) refreshJobs(); }, 10000);
 setInterval(loadSummary, 30000);
 setInterval(() => { if (!$('#tab-accounts').classList.contains('hidden')) pollAccountPlanStatuses(); }, 10000);
 </script>
+{% include 'promo_details.html' %}
 </body>
 </html>

@@ -20,32 +20,21 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 
-def _latest_chrome_major(default: str = "142") -> str:
+def _latest_chrome_major(default: str = "146") -> str:
     """兼容旧模块导入；必须与 curl_cffi 实际 TLS impersonate 版本一致。"""
     return default
 
 
-CHROME_MAJOR = "142"
-CHROME_FULL_VERSION = "142.0.0.0"
+CHROME_MAJOR = "146"
+CHROME_FULL_VERSION = "146.0.0.0"
 
 SAFARI_VERSION = ""
 SAFARI_WEBKIT_VERSION = "537.36"
 MAC_OS_UA_VERSION = "10_15_7"
 
 # ---------- curl_cffi 模拟浏览器 ----------
-# 版本选择只有一个硬约束：该 impersonate 目标必须能稳定通过 Cloudflare。
-# 实测（curl_cffi 0.16.3，VN 住宅代理与 JP 直连两条出口各重复多轮）：
-#     chrome142  → HTTP 200（两条出口、多轮全部通过）
-#     chrome146 / chrome145 / chrome136 / chrome131 / chrome133a → 403
-#                  + cf-mitigated=challenge（确定性失败，不是偶发抖动）
-#     chrome(=chrome150) / safari184 会出现 200/403 抖动
-# 也就是说 TLS/JA3+HTTP2 指纹不匹配时 CF 会在 /auth/login 直接下发 JS 挑战，
-# 与出口 IP 是否干净无关；此时同一会话原地重试 4 次必然全部 403。
-# 升级 curl_cffi 或改这个值后，必须用 core/proxy_test_service.py 或
-# tools 里的探测脚本对 /auth/login 复测，确认返回 2xx 再上线。
-# UA、Client Hints、JS navigator 必须同步为同一主版本；不能出现
-# TLS=142、HTTP/JS=146 的跨版本拼接指纹。
-IMPERSONATE = "chrome142"
+# curl_cffi 的 TLS impersonate、User-Agent、Client Hints 和 JS navigator 必须使用同一主版本。
+IMPERSONATE = "chrome146"
 
 # ---------- 桌面 Chrome 画像 ----------
 BROWSER_FAMILY = "chrome"
@@ -60,8 +49,11 @@ USER_AGENT = (
     f"Chrome/{CHROME_FULL_VERSION} Safari/{SAFARI_WEBKIT_VERSION}"
 )
 
-SEC_CH_UA = '"Google Chrome";v="142", "Chromium";v="142", "Not)A;Brand";v="24"'
-SEC_CH_UA_FULL_VERSION_LIST = '"Google Chrome";v="142.0.0.0", "Chromium";v="142.0.0.0", "Not)A;Brand";v="24.0.0.0"'
+# 必须与 curl_cffi chrome146 实际发出的品牌顺序和 GREASE 品牌完全一致。
+# 旧值使用 HAR 中 Chrome149 的 Google Chrome/Chromium/Not)A;Brand 顺序，
+# 但 TLS impersonate 已切到 chrome146，造成网络栈与显式 Client Hints 冲突。
+SEC_CH_UA = '"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"'
+SEC_CH_UA_FULL_VERSION_LIST = '"Chromium";v="146.0.0.0", "Not-A.Brand";v="24.0.0.0", "Google Chrome";v="146.0.0.0"'
 SEC_CH_UA_PLATFORM = '"macOS"'
 SEC_CH_UA_PLATFORM_VERSION = '"15.7.0"'
 SEC_CH_UA_MOBILE = "?0"
@@ -98,6 +90,9 @@ CLOUD_PROXY_ORG_KEYWORDS = [
 # 该模式仅应用于 Roxy/Cloak，本地浏览器才需要节省带宽；Browser Use/Skyvern 云端
 # 浏览器不会安装省流量拦截器。Selenium/CDP 只能按 URL 后缀拦截，若验证码异常可关闭。
 BROWSER_DATA_SAVER_MODE: bool = False
+# 注册已经拿到 accessToken 后，阻断不再需要的 ChatGPT 应用壳/遥测资源。
+# 仅在 Roxy/Cloak 注册后阶段生效，不影响邮箱、验证码和登录页面。
+BROWSER_DATA_SAVER_DEEP_MODE: bool = True
 # 每行一个 Playwright resource_type。可选 image/media/font/manifest/texttrack 等；
 # 默认只拦截 image、media；也可配置 stylesheet/font 等资源；Roxy 还会通过 Chromium 启动参数关闭图片加载，
 # 遇到页面布局或验证码异常时可关闭模式。
@@ -110,6 +105,7 @@ BROWSER_DATA_SAVER_BLOCKED_RESOURCE_TYPES: list[str] = ["image", "media"]
 # `**` 用于匹配 URL 中的任意路径；Roxy/Cloak 的 Playwright/Selenium 会读取这组规则。
 BROWSER_DATA_SAVER_BLOCKED_URL_PATTERNS: list[str] = [
     "**://auth.openai.com/awe/api/v2/rum**",
+    "**://chatgpt.com/awe/api/v2/rum**",
     "**://chatgpt.com/ces/statsc/flush**",
     "**://connect.facebook.net/**",
     "**://analytics.tiktok.com/**",
@@ -117,18 +113,6 @@ BROWSER_DATA_SAVER_BLOCKED_URL_PATTERNS: list[str] = [
     "**://bat.bing.com/**",
     "**://accounts.google.com/gsi/client**",
 ]
-
-# ---------- Cloudflare 风控页人工处理 ----------
-# 注册/授权过程中某个页面被 Cloudflare 接管时（Turnstile“Verify you are human”复选框、
-# “Just a moment…” 全屏挑战页、Attention Required 拦截页），脚本无法代替用户点击。
-# 开启后：WebUI 弹框 + 浏览器提醒用户手动处理，并按 CF_CHALLENGE_POLL_INTERVAL 秒
-# **定时复检页面是否恢复正常**，恢复后流程自动继续；用户也可以在弹框里点「取消本次任务」
-# 让该任务立即失败，或点「我已处理完成」触发一次立即复检。
-# 等待上限**不在这里配置**：与「人工介入超时时间」共用 MANUAL_OTP_TIMEOUT（config/email.py），
-# 超时后该任务自动结束（失败），不会一直挂着。
-CF_CHALLENGE_MANUAL_WAIT: bool = True
-# 复检间隔（秒）。Turnstile 通过后页面会自己跳转，5 秒粒度足够且不会把页面问爆。
-CF_CHALLENGE_POLL_INTERVAL: int = 5
 
 # ---------- Roxy/Cloak 浏览器流量明细日志 ----------
 # 默认关闭；开启后在每次注册结束时按单请求总字节降序输出资源 URL、类型、状态和大小。
@@ -419,4 +403,4 @@ def validate_browser_profile(profile: dict) -> list[str]:
     return issues
 
 # ---- .env overrides for WebUI editable fields ----
-apply_env_overrides(globals(), {'BROWSER_LOCALE_PROFILE': 'str', 'AUTO_BROWSER_LOCALE_FROM_IP': 'bool', 'IP_GEO_TIMEOUT': 'float', 'REJECT_CLOUD_PROXY': 'bool', 'BROWSER_DATA_SAVER_MODE': 'bool', 'BROWSER_DATA_SAVER_BLOCKED_RESOURCE_TYPES': 'list_str_multiline', 'BROWSER_DATA_SAVER_BLOCKED_URL_PATTERNS': 'list_str_multiline', 'BROWSER_TRAFFIC_DETAIL_LOG': 'bool', 'BROWSER_TRAFFIC_DETAIL_MAX_ENTRIES': 'int', 'BROWSER_JS_COVERAGE_LOG': 'bool', 'BROWSER_JS_COVERAGE_MAX_ENTRIES': 'int', 'CF_CHALLENGE_MANUAL_WAIT': 'bool', 'CF_CHALLENGE_POLL_INTERVAL': 'int'})
+apply_env_overrides(globals(), {'BROWSER_LOCALE_PROFILE': 'str', 'AUTO_BROWSER_LOCALE_FROM_IP': 'bool', 'IP_GEO_TIMEOUT': 'float', 'REJECT_CLOUD_PROXY': 'bool', 'BROWSER_DATA_SAVER_MODE': 'bool', 'BROWSER_DATA_SAVER_BLOCKED_RESOURCE_TYPES': 'list_str_multiline', 'BROWSER_DATA_SAVER_BLOCKED_URL_PATTERNS': 'list_str_multiline', 'BROWSER_TRAFFIC_DETAIL_LOG': 'bool', 'BROWSER_TRAFFIC_DETAIL_MAX_ENTRIES': 'int', 'BROWSER_JS_COVERAGE_LOG': 'bool', 'BROWSER_JS_COVERAGE_MAX_ENTRIES': 'int', 'BROWSER_DATA_SAVER_DEEP_MODE': 'bool'})

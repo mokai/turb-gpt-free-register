@@ -4,12 +4,11 @@ import logging
 import json
 import threading
 import time
-import uuid
 from datetime import datetime
 from pathlib import Path
 
 from core import db
-from core.session import BrowserSession
+from core.session import BrowserSession, close_browser_session
 from core.codex_oauth import _account_registration_password, _account_totp_secret, _account_totp_code
 from core.humanize import delay as human_delay
 from core.chatgpt_auth import get_csrf_token, get_providers, probe_auth_session, signin_openai
@@ -72,12 +71,24 @@ def _new_fingerprint_pinned_session(
     state = fingerprint_state if fingerprint_state is not None else {}
     saved_profile = state.get("browser_profile")
     identity = str(email).strip().lower()
-    # 每个查活任务生成一次独立 seed；同一任务内所有阶段/重试复用，下一任务及
-    # 其他账号均不会继承该组 device/session/sentinel 标识。
-    fingerprint_seed = str(state.get("fingerprint_seed") or "").strip()
-    if not fingerprint_seed:
-        fingerprint_seed = f"live-check:{identity}:{uuid.uuid4()}"
-        state["fingerprint_seed"] = fingerprint_seed
+    # 和协议注册使用同一套生命周期配置：开启“同邮箱保持协议指纹”时，
+    # 查活可重新构造注册阶段的 device/session/硬件画像；关闭时每次查活
+    # 生成独立 seed。无论哪种模式，同一任务内部的所有阶段/重试都固定。
+    fingerprint_seed = str(state.get("fingerprint_seed") or "").strip() or None
+    if not state.get("fingerprint_initialized"):
+        from config import register as register_cfg
+        reuse_by_email = bool(
+            getattr(register_cfg, "PROTOCOL_REUSE_FINGERPRINT_BY_EMAIL", False)
+        ) and not bool(state.get("force_fresh"))
+        # “每次重新创建”必须和协议注册完全一致：不传 seed，让 BrowserSession
+        # 生成真实的随机 UUID4。旧实现先生成随机 seed 再派生 UUID5，虽然值也
+        # 随机，但 UUID version 位与注册时不同，属于可观测的指纹差异。
+        fingerprint_seed = f"registration:{identity}" if reuse_by_email else None
+        state["fingerprint_seed"] = fingerprint_seed or ""
+        state["fingerprint_mode"] = (
+            "registration_email_stable" if reuse_by_email else "fresh_per_check"
+        )
+        state["fingerprint_initialized"] = True
     session = BrowserSession(
         proxy=proxy,
         # 首次按当前出口生成地区画像；同一路由内部如需重建则原样复用。
@@ -100,15 +111,20 @@ def _new_fingerprint_pinned_session(
     return session
 
 
+def _fingerprint_mode_label(state: dict) -> str:
+    mode = str(state.get("fingerprint_mode") or "")
+    if mode == "registration_email_stable":
+        return "同邮箱复用协议注册指纹"
+    return "每次查活重新创建"
+
+
 def _warm_login_fingerprint_context(session: BrowserSession) -> None:
     """复现 plus 纯协议注册成功样本的登录页初始化顺序。"""
     from core.chatgpt_bootstrap import anonymous_bootstrap
 
-    stage = "初始化"
     logger.info(
         "[查活] 登录链预热：/auth/login 顶层导航 → anonymous bootstrap → "
-        "providers → session → CSRF → session；指纹=%s",
-        session.fingerprint_summary_text(),
+        "providers → session → CSRF → session"
     )
     try:
         stage = "chatgpt.com /auth/login 顶层导航"
@@ -180,6 +196,7 @@ def _network_preflight_with_retry(
     # 一次网络预检只创建一个 BrowserSession。403 响应下发的新 __cf_bm、
     # OAuth/设备上下文都保留在同一 Cookie Jar 中供下一轮使用。
     session = _new_fingerprint_pinned_session(email, proxy, state)
+    logger.info("[查活] 指纹生命周期：%s", _fingerprint_mode_label(state))
     for attempt in range(1, max_attempts + 1):
         logger.info(
             "[查活] 复用统一会话：proxy=%s device_id=%s oai_session_id=%s（网络预检第 %s/%s 次）",
@@ -190,19 +207,16 @@ def _network_preflight_with_retry(
         logger.info("[查活] 指纹摘要：%s", session.fingerprint_summary_text())
         try:
             _warm_login_fingerprint_context(session)
-            logger.info("[查活] 预检阶段：CSRF")
             csrf = get_csrf_token(session)
             # 成功 Web 样本在 signin 前会再次确认匿名 NextAuth session。
-            logger.info("[查活] 预检阶段：signin 前 anonymous session")
             probe_auth_session(session)
-            logger.info("[查活] 预检阶段：signin/openai")
             authorize_url = signin_openai(session, csrf, email)
             return session, authorize_url
         except Exception as exc:
             last_exc = exc
             if attempt >= max_attempts or not _is_retryable_network_error(exc):
                 try:
-                    session.session.close()
+                    close_browser_session(session)
                 except Exception:
                     pass
                 raise
@@ -893,6 +907,10 @@ def check_account_liveness(
             logger.info("[查活] 流程：登录态预热 → CSRF → Reauth Signin → Authorize → 邮箱 OTP → OAuth callback → Session/AT")
             session = _new_fingerprint_pinned_session(email, proxy, task_fingerprint_state)
             logger.info(
+                "[查活] 指纹生命周期：%s",
+                _fingerprint_mode_label(task_fingerprint_state),
+            )
+            logger.info(
                 "[查活] 会话创建完成：proxy=%s device_id=%s（复用2FA稳定链路）",
                 session.proxy or "直连/配置随机",
                 session.device_id,
@@ -919,7 +937,7 @@ def check_account_liveness(
                     str(reauth_exc)[:240],
                 )
                 try:
-                    session.session.close()
+                    close_browser_session(session)
                 except Exception:
                     pass
                 session, session_info = _login_via_full_web_flow(
@@ -979,7 +997,7 @@ def check_account_liveness(
             logger.info("[查活] 结束：%s", email)
             if session is not None:
                 try:
-                    session.session.close()
+                    close_browser_session(session)
                 except Exception:
                     pass
             if fh is not None:

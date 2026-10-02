@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""WebUI 人工处理弹框接口（Cloudflare 风控页）。
+"""WebUI 通用页面人工处理 API。
 
 覆盖：
 - GET /api/manual-intervention/pending：无请求时返回空列表；有待处理时返回完整字段；
@@ -48,9 +48,9 @@ def test_pending_is_empty_by_default():
 
 def test_pending_exposes_fields_frontend_needs():
     mi.mark_pending(
-        kind="cloudflare_challenge",
-        title="需要你手动完成 Cloudflare 验证",
-        guide="请在指纹浏览器窗口里点击验证框",
+        kind="page_verification",
+        title="需要你手动完成页面验证",
+        guide="请在浏览器窗口里完成页面验证",
         url="https://chatgpt.com/auth/login",
         email="a@b.com",
         job_id=42,
@@ -62,7 +62,7 @@ def test_pending_exposes_fields_frontend_needs():
     items = client.get("/api/manual-intervention/pending").get_json()["items"]
     assert len(items) == 1
     item = items[0]
-    assert item["kind_label"] == "Cloudflare 风控验证"
+    assert item["kind_label"] == "页面验证"
     assert item["email"] == "a@b.com"
     assert item["job_id"] == 42
     assert item["url"] == "https://chatgpt.com/auth/login"
@@ -78,8 +78,8 @@ def test_ack_wakes_waiter():
         try:
             holder["result"] = mi.request_manual_intervention(
                 probe=lambda: {"recovered": holder.get("done", False)},
-                kind="cloudflare_challenge",
-                title="需要你手动完成 Cloudflare 验证",
+                kind="page_verification",
+                title="需要你手动完成页面验证",
                 timeout=60,
                 poll_interval=30,   # 抽很长，只有 ack 能唤醒
             )
@@ -109,8 +109,8 @@ def test_cancel_ends_task():
         try:
             mi.request_manual_intervention(
                 probe=lambda: {"recovered": False},
-                kind="cloudflare_challenge",
-                title="需要你手动完成 Cloudflare 验证",
+                kind="page_verification",
+                title="需要你手动完成页面验证",
                 timeout=60,
                 poll_interval=30,
             )

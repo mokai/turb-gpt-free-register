@@ -5,7 +5,7 @@
 
 - ``manual_otp``：需要用户**输入一个值**（邮箱验证码），提交后调用方拿到值继续。
 - ``manual_intervention``：需要用户在**指纹浏览器窗口里手动操作**（典型场景是
-  Cloudflare 风控页的“Verify you are human”验证框，跨域 iframe 里，脚本无法代点）。
+  页面上的人工验证或确认操作）。
   本模块只负责：
     1. 把这条请求登记给 WebUI（弹框 + 浏览器提醒 + 标题闪烁）；
     2. 由调用方传入 ``probe``，按 ``poll_interval`` **定时复检页面是否恢复正常**；
@@ -16,9 +16,9 @@
     from core.manual_intervention import request_manual_intervention
 
     result = request_manual_intervention(
-        kind="cloudflare_challenge",
-        title="需要你手动完成 Cloudflare 验证",
-        detail="请在浏览器窗口里点击验证框…",
+        kind="page_verification",
+        title="需要你手动处理页面",
+        detail="请在浏览器窗口里完成页面操作…",
         url=page_url,
         email=email,
         job_id=job_id,
@@ -56,7 +56,7 @@ _RESOLVED_GRACE_SECONDS = 10
 _MIN_POLL_INTERVAL = 1.0
 
 _kind_labels = {
-    "cloudflare_challenge": "Cloudflare 风控验证",
+    "page_verification": "页面验证",
 }
 
 _lock = threading.RLock()

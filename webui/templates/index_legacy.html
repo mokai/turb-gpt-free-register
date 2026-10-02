@@ -272,6 +272,17 @@
     .accounts-table .account-email-status { color: #b54708; }
     .accounts-table .mono { font-size: 11px; }
     .accounts-table .pill { min-width: auto; padding: 2px 6px; font-size: 11px; }
+    .accounts-table .plan-promo-stack {
+      display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+      width: 100%; white-space: normal;
+    }
+    .accounts-table .plan-promo-head {
+      display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+    }
+    .accounts-table .plan-promo-stack .pill {
+      display: inline-flex; max-width: 100%; height: auto; min-height: 22px;
+      line-height: 1.3; text-align: left; white-space: normal; overflow-wrap: anywhere;
+    }
     .accounts-table .actions { gap: 4px; }
     .accounts-table .actions button { min-height: 24px; padding: 0 7px; font-size: 11px; border-radius: 5px; transition: transform .12s ease, box-shadow .12s ease, background .12s ease; }
 
@@ -347,6 +358,8 @@
       min-height: 30px; width: auto; border: 1px solid var(--line); border-radius: 6px;
       padding: 4px 8px; font: inherit; font-size: 12px; margin-top: 0;
     }
+    .pager-bar .pager-goto { display:inline-flex; align-items:center; gap:5px; color:var(--muted); font-size:12px; white-space:nowrap; }
+    .pager-bar .pager-goto input { width:58px; padding:6px 7px; border:1px solid var(--line); border-radius:7px; text-align:center; background:var(--surface); color:var(--text); }
     .config-tabs {
       display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 14px;
       padding-bottom: 12px; border-bottom: 1px solid var(--line);
@@ -533,14 +546,22 @@
             <label class="inline-num" title="默认只显示未归档账号；勾选后单独查看归档账号">
               <input id="showArchivedAccounts" type="checkbox" style="width:auto;min-height:auto;"> 查看归档
             </label>
-            <label class="inline-num" title="只查询/显示已开通 Plus 的账号">
-              <input id="showPlusAccountsOnly" type="checkbox" style="width:auto;min-height:auto;"> 已开通Plus
+            <label class="inline-num" title="只查询/显示已开通套餐的账号">
+              <input id="showPlusAccountsOnly" type="checkbox" style="width:auto;min-height:auto;"> 已开通套餐
             </label>
-            <label class="inline-num" title="只查询/显示当前为 free 且可试用 Plus 的账号">
-              <input id="showPlusTrialAccountsOnly" type="checkbox" style="width:auto;min-height:auto;"> 可试用Plus
+            <label class="inline-num" title="只查询/显示当前为 free 且存在 eligible_promo_campaigns 套餐优惠的账号，不限 Plus">
+              <input id="showPlusTrialAccountsOnly" type="checkbox" style="width:auto;min-height:auto;"> 有套餐优惠
             </label>
-            <label class="inline-num" title="只查询/显示已明确不能试用 Plus 的 free 账号；资格未知的账号不包含">
-              <input id="showFreeAccountsOnly" type="checkbox" style="width:auto;min-height:auto;"> free不可试用Plus
+            <label class="inline-num" title="指定 eligible_promo_campaigns 中的套餐类型；留空表示全部优惠类型">
+              优惠类型
+              <select id="promoTypeFilter" style="width:auto;min-height:auto;"><option value="">全部</option><option value="plus">Plus</option><option value="pro">Pro</option><option value="go">Go</option><option value="team">Team</option><option value="business">Business</option></select>
+            </label>
+            <label class="inline-num" title="按 eligible_promo_campaigns 优惠百分比筛选">
+              优惠力度
+              <select id="promoDiscountFilter" style="width:auto;min-height:auto;"><option value="">全部</option><option value="100">100%优惠</option></select>
+            </label>
+            <label class="inline-num" title="只查询/显示已明确不能试用套餐的 free 账号；资格未知的账号不包含">
+              <input id="showFreeAccountsOnly" type="checkbox" style="width:auto;min-height:auto;"> free不可试用套餐
             </label>
             <label class="inline-num" title="按账号状态筛选账号">
               状态
@@ -819,7 +840,12 @@ function _renderPager(id, total) {
     <button onclick="pagerGo('${id}',1)"${p.page >= totalPages ? ' disabled' : ''}>下一页 →</button>
     <select onchange="pagerSetSize('${id}',this.value)">${sizes.map(s =>
       `<option value="${s}"${p.size === s ? ' selected' : ''}>${s} 条/页</option>`
-    ).join('')}</select>`;
+    ).join('')}</select>
+    ${id === 'accounts' ? `<label class="pager-goto">前往
+      <input type="number" min="1" max="${totalPages}" value="${p.page}" inputmode="numeric"
+        onkeydown="if(event.key==='Enter'){pagerJumpTo('${id}',this.value,${totalPages});event.preventDefault();}">
+      页 <button type="button" onclick="pagerJumpTo('${id}',this.previousElementSibling.value,${totalPages})">跳转</button>
+    </label>` : ''}`;
 }
 
 function _reloadPagedList(id) {
@@ -827,6 +853,14 @@ function _reloadPagedList(id) {
 }
 function pagerGo(id, dir) {
   PAGERS[id].page = Math.max(1, PAGERS[id].page + dir);
+  _reloadPagedList(id);
+}
+function pagerJumpTo(id, value, totalPages) {
+  const p = PAGERS[id];
+  if (!p) return;
+  const requested = parseInt(value, 10);
+  if (!Number.isFinite(requested)) return;
+  p.page = Math.max(1, Math.min(requested, Math.max(1, Number(totalPages) || 1)));
   _reloadPagedList(id);
 }
 function pagerSetSize(id, val) {
@@ -1295,7 +1329,11 @@ function getAccountsTotpFilter() {
 }
 function getAccountsPlanFilter() {
   if (SHOW_PLUS_ACCOUNTS_ONLY) return 'plus';
-  if (SHOW_PLUS_TRIAL_ACCOUNTS_ONLY) return 'plus_trial';
+  if (SHOW_PLUS_TRIAL_ACCOUNTS_ONLY) {
+    const type = ($('#promoTypeFilter')?.value || '').trim().toLowerCase();
+    const discount = ($('#promoDiscountFilter')?.value || '').trim();
+    return (type || discount) ? `promo:${type || '*'}:${discount}` : 'promo';
+  }
   if (SHOW_FREE_ACCOUNTS_ONLY) return 'free_no_trial';
   return '';
 }
@@ -1420,6 +1458,42 @@ function _discountLabel(r) {
   if (!Number.isNaN(n)) return `${n}折扣`;
   return `${amount}折扣`;
 }
+function _promoPlanName(key, campaign) {
+  const meta = (campaign && typeof campaign === 'object' && campaign.metadata && typeof campaign.metadata === 'object') ? campaign.metadata : {};
+  const raw = String(meta.plan_name || key || '套餐').trim();
+  const known = {
+    chatgptplusplan:'Plus', chatgptproplan:'Pro', chatgptteamplan:'Team',
+    chatgptbusinessplan:'Business', chatgptgoplan:'Go', plus:'Plus', pro:'Pro',
+    team:'Team', business:'Business', go:'Go'
+  };
+  const normalized = raw.toLowerCase().replace(/[\s_-]/g, '');
+  if (known[normalized]) return known[normalized];
+  return raw.replace(/^chatgpt/i, '').replace(/plan$/i, '') || raw;
+}
+function _promoDurationLabel(duration) {
+  if (!duration || typeof duration !== 'object' || duration.num_periods == null) return '';
+  const n = duration.num_periods;
+  const period = String(duration.period || '').toLowerCase();
+  const unit = period === 'month' ? '个月' : period === 'year' ? '年' : period === 'week' ? '周' : period === 'day' ? '天' : period;
+  return `${n}${unit}`;
+}
+function _promoSummaries(campaigns) {
+  if (!campaigns || typeof campaigns !== 'object') return [];
+  return Object.entries(campaigns).map(([key, campaign]) => {
+    const meta = (campaign && typeof campaign === 'object' && campaign.metadata && typeof campaign.metadata === 'object') ? campaign.metadata : {};
+    const percentage = meta.discount && meta.discount.percentage;
+    const offer = percentage !== undefined && percentage !== null && percentage !== ''
+      ? (Number(percentage) === 100 ? '免费' : `${percentage}%折扣`)
+      : String(meta.promotion_type_label || meta.title || (campaign && campaign.id) || '有优惠');
+    const duration = _promoDurationLabel(meta.duration);
+    return `${_promoPlanName(key, campaign)}：${offer}${duration ? `/${duration}` : ''}`;
+  });
+}
+function _promoStackHtml(baseText, baseClass, summaries, title, detailBtn = '') {
+  const base = `<span class="pill ${baseClass}" title="${esc(title)}">${esc(baseText)}</span>`;
+  const lines = summaries.map(item => `<span class="pill status-success" title="${esc(item)}">${esc(item)}</span>`).join('');
+  return `<div class="plan-promo-stack"><div class="plan-promo-head">${base}${detailBtn}</div>${lines}</div>`;
+}
 function _planCell(r) {
   const ok = r.plan_check_ok;
   const err = r.plan_check_error || '';
@@ -1430,6 +1504,8 @@ function _planCell(r) {
     route === 'direct_fallback' ? `网络: 直连回退${r.plan_check_proxy_fallback_reason ? ` (${r.plan_check_proxy_fallback_reason})` : ''}` :
     route === 'direct' ? '网络: 直连' : '';
   const title = [err ? esc(err) : checked, routeLabel].filter(Boolean).join('；');
+  const campaigns = (r.eligible_promo_campaigns && typeof r.eligible_promo_campaigns === 'object') ? r.eligible_promo_campaigns : {};
+  const promoSummaries = _promoSummaries(campaigns);
   if (['queued','running'].includes(r.plan_check_status)) {
     const automatic = r.plan_check_trigger === 'registration_auto';
     const queued = r.plan_check_status === 'queued';
@@ -1441,7 +1517,7 @@ function _planCell(r) {
   if (err || r.plan_check_status === 'failed') {
     const reason = err || '套餐查询失败，未返回具体原因';
     const hasLastSuccess = Boolean(r.plan_last_success_at);
-    const lastPlan = hasLastSuccess ? `${plan}${r.plus_trial_eligible ? '/可Plus试用' : ''}` : '';
+    const lastPlan = hasLastSuccess ? `${plan}${promoSummaries.length ? `（${promoSummaries.join('；')}）` : ''}` : '';
     const lastText = lastPlan ? `（上次: ${lastPlan}）` : '';
     const lastTitle = hasLastSuccess ? `上次成功: ${esc(r.plan_last_success_at)}` : '';
     return `<div class="extract-link-cell"><span class="pill status-failed" title="${[esc(reason), lastTitle].filter(Boolean).join('；')}">查询失败${esc(lastText)}</span><div class="extract-link-error" title="${esc(reason)}">${esc(reason)}</div></div>`;
@@ -1453,10 +1529,11 @@ function _planCell(r) {
     if (!checkedOk) {
       return `<span class="pill status-running" title="${title}">${esc(plan)}（待查资格）</span>`;
     }
-    const text = r.plus_trial_eligible ? 'free(可Plus试用)' : 'free';
-    const cls = r.plus_trial_eligible ? 'status-success' : 'status-used';
-    const t = r.plus_trial_eligible ? `${title}；Plus 试用资格可用` : title;
-    return `<span class="pill ${cls}" title="${t}">${esc(text)}</span>`;
+    const cls = promoSummaries.length ? 'status-success' : 'status-used';
+    const t = promoSummaries.length ? `${title}；可用套餐优惠：${promoSummaries.join('；')}` : title;
+    const keys = Object.keys(campaigns);
+    const detailBtn = keys.length ? `<button type="button" class="promo-detail-btn" data-promo-details="${esc(JSON.stringify(campaigns))}">详情(${keys.length})</button>` : '';
+    return _promoStackHtml('free', cls, promoSummaries, t, detailBtn);
   }
 
   const isPaid = lower.includes('plus') || lower.includes('pro') || lower.includes('team') || lower.includes('go');
@@ -1476,7 +1553,7 @@ function _planCell(r) {
   if (r.plan_renews_at) detail.push(`续费时间: ${r.plan_renews_at}`);
   if (r.discount_expires_at) detail.push(`折扣结束: ${r.discount_expires_at}`);
   if (r.discount_promo_campaign_id) detail.push(`优惠: ${r.discount_promo_campaign_id}`);
-  return `<span class="pill ${cls}" title="${esc(detail.join('；'))}">${esc(text)}</span>`;
+  return _promoStackHtml(text, cls, promoSummaries, detail.join('；'));
 }
 function _planAction(r) {
   if (['queued','running'].includes(r.plan_check_status)) {
@@ -2040,6 +2117,30 @@ $('#showPlusTrialAccountsOnly').addEventListener('change', async (e) => {
     $('#showPlusAccountsOnly').checked = false;
     $('#showFreeAccountsOnly').checked = false;
   }
+  ACCOUNT_SELECTED.clear();
+  PAGERS.accounts.page = 1;
+  await loadAccounts();
+  await pollAccountPlanStatuses();
+});
+$('#promoTypeFilter').addEventListener('change', async () => {
+  SHOW_PLUS_TRIAL_ACCOUNTS_ONLY = true;
+  SHOW_PLUS_ACCOUNTS_ONLY = false;
+  SHOW_FREE_ACCOUNTS_ONLY = false;
+  $('#showPlusTrialAccountsOnly').checked = true;
+  $('#showPlusAccountsOnly').checked = false;
+  $('#showFreeAccountsOnly').checked = false;
+  ACCOUNT_SELECTED.clear();
+  PAGERS.accounts.page = 1;
+  await loadAccounts();
+  await pollAccountPlanStatuses();
+});
+$('#promoDiscountFilter').addEventListener('change', async () => {
+  SHOW_PLUS_TRIAL_ACCOUNTS_ONLY = true;
+  SHOW_PLUS_ACCOUNTS_ONLY = false;
+  SHOW_FREE_ACCOUNTS_ONLY = false;
+  $('#showPlusTrialAccountsOnly').checked = true;
+  $('#showPlusAccountsOnly').checked = false;
+  $('#showFreeAccountsOnly').checked = false;
   ACCOUNT_SELECTED.clear();
   PAGERS.accounts.page = 1;
   await loadAccounts();
@@ -3262,7 +3363,9 @@ function configGroups() {
 function renderConfigField(f) {
   const fv = Object.prototype.hasOwnProperty.call(CONFIG_PENDING_UPDATES, f.key) ? CONFIG_PENDING_UPDATES[f.key] : f.value;
   let html = `<label class="fld">${esc(f.label)}<span class="hint">${esc(f.help)} · <span class="mono">${esc(f.key)}</span></span>`;
-  if (f.type === 'bool') {
+  if (Array.isArray(f.choices) && f.choices.length) {
+    html += `<select data-key="${attrEsc(f.key)}">${f.choices.map(item => `<option value="${attrEsc(item.value)}"${String(fv) === String(item.value) ? ' selected' : ''}>${esc(item.label || item.value)}</option>`).join('')}</select>`;
+  } else if (f.type === 'bool') {
     html += `<select data-key="${attrEsc(f.key)}"><option value="true"${fv?' selected':''}>开启 (True)</option><option value="false"${!fv?' selected':''}>关闭 (False)</option></select>`;
   } else if (f.type === 'int') {
     html += `<input type="number" data-key="${attrEsc(f.key)}" value="${attrEsc(fv == null ? '' : fv)}">`;
@@ -3334,10 +3437,11 @@ function emailConfigSectionForKey(key) {
 
 
 function smsConfigSectionForKey(key) {
-  if (['SMS_PROVIDER','SMS_COUNTRY','SMS_SERVICE','SMS_MAX_RETRIES','SMS_CODE_WAIT'].includes(key)) {
-    return ['通用接码', '接码通道选择、国家/服务代码、等待和重试参数；H 通道可复用 SMS_SERVICE/SMS_COUNTRY 作为 projectId/country'];
+  if (['SMS_PROVIDER','SMS_COUNTRY','SMS_SERVICE','SMS_MAX_PRICE','SMS_MAX_RETRIES','SMS_CODE_WAIT'].includes(key)) {
+    return ['通用接码', '接码通道选择、国家/服务代码、价格、等待和重试参数；SMSBower 的 OpenAI 服务代码为 dr，openai/chatgpt 会自动转换'];
   }
   if (key === 'SMS_API_KEY') return ['GrizzlySMS', 'GrizzlySMS 平台 API Key 配置'];
+  if (key.startsWith('SMSBOWER_')) return ['SMSBower', 'SMSBower handler_api、V2取号和供应商/价格筛选配置'];
   if (key.startsWith('H_')) return ['H 接码', 'H_API.md 本地 H 取号服务配置；项目ID/国家留空时复用通用字段'];
   if (key.startsWith('L_')) return ['L 接码', 'L_API.md 本地 L 取号服务配置'];
   return ['其他接码配置', ''];
@@ -3407,7 +3511,7 @@ function renderConfigFields(fields) {
       CONFIG_SMS_ACTIVE_SECTION,
       v => { CONFIG_SMS_ACTIVE_SECTION = v; },
       smsConfigSectionForKey,
-      ['通用接码', 'GrizzlySMS', 'H 接码', 'L 接码', '其他接码配置'],
+      ['通用接码', 'GrizzlySMS', 'SMSBower', 'H 接码', 'L 接码', '其他接码配置'],
       'sms-config-section'
     );
   }
@@ -3675,8 +3779,14 @@ function readConfigElementValue(el, f) {
   if (!f) return undefined;
   if (f.type === 'list_str_multiline') return el.value.split('\n').map(s=>s.trim()).filter(Boolean);
   if (f.type === 'bool') return el.value === 'true';
-  if (f.type === 'int') return parseInt(el.value || '0', 10);
-  if (f.type === 'float') return parseFloat(el.value || '0');
+  if (f.type === 'int') {
+    const value = parseInt(String(el.value || '').trim(), 10);
+    return Number.isFinite(value) ? value : Number(f.value || 0);
+  }
+  if (f.type === 'float') {
+    const value = parseFloat(String(el.value || '').trim());
+    return Number.isFinite(value) ? value : Number(f.value || 0);
+  }
   return isPlaceholderEmpty(el.value) ? '' : el.value.trim();
 }
 
@@ -3732,5 +3842,6 @@ jobsTimer = setInterval(() => { if (!$('#tab-register').classList.contains('hidd
 setInterval(loadSummary, 30000);
 setInterval(() => { if (!$('#tab-accounts').classList.contains('hidden')) pollAccountPlanStatuses(); }, 10000);
 </script>
+{% include 'promo_details.html' %}
 </body>
 </html>

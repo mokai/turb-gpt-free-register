@@ -39,9 +39,6 @@ from core.roxy_registration import (
     _submit_email_and_wait_next,
     _type_otp,
     _wait_after_email_otp_submit,
-    clear_cf_context,
-    set_cf_context,
-    update_cf_context,
 )
 
 logger = logging.getLogger(__name__)
@@ -110,7 +107,6 @@ def run_bit_registration(
     try:
         timeout_token = _SELENIUM_TIMEOUT_OVERRIDE.set(int(getattr(_cfg, "BIT_SELENIUM_TIMEOUT", 90) or 90))
         driver = _build_driver(opened, driver_label="[Bit]")
-        set_cf_context(email=email, task="注册")
         try:
             # 共享页面操作函数按这个前缀输出日志（见 roxy_registration._log_prefix）。
             driver._registration_log_prefix = _LOG_PREFIX
@@ -157,7 +153,6 @@ def run_bit_registration(
             email = acquire_email_after_input(email)
             if on_email_acquired:
                 on_email_acquired(email)
-            update_cf_context(email=email)
             return email
 
         next_state = _submit_email_and_wait_next(
@@ -345,7 +340,6 @@ def run_bit_registration(
             "error": f"{type(exc).__name__}: {str(exc)[:300]}",
         }
     finally:
-        clear_cf_context()
         if traffic_tracker is not None:
             try:
                 traffic_tracker.stop()

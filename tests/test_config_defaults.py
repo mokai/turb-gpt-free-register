@@ -56,6 +56,18 @@ class ConfigDefaultFallbackTests(unittest.TestCase):
 
         self.assertEqual(namespace["PROXY_POOL"], [])
 
+    def test_generic_api_proxy_blank_env_value_means_direct(self):
+        old_loaded = env_loader._LOADED
+        env_loader._LOADED = True
+        namespace = {"GENERIC_API_PROXY": "http://127.0.0.1:7897"}
+        try:
+            with patch.dict(os.environ, {"GENERIC_API_PROXY": ""}, clear=True):
+                env_loader.apply_env_overrides(namespace, {"GENERIC_API_PROXY": "str"})
+        finally:
+            env_loader._LOADED = old_loaded
+
+        self.assertEqual(namespace["GENERIC_API_PROXY"], "")
+
     def test_config_editor_formats_empty_list_as_literal_empty_list(self):
         self.assertEqual(config_editor._format_env_value([], "list_str_multiline"), "[]")
 
@@ -96,24 +108,17 @@ class ConfigDefaultFallbackTests(unittest.TestCase):
         self.assertEqual(fields["BROWSER_JS_COVERAGE_LOG"]["type"], "bool")
         self.assertEqual(fields["BROWSER_JS_COVERAGE_MAX_ENTRIES"]["type"], "int")
 
-    def test_webui_exposes_cf_challenge_manual_settings(self):
-        fields = {field["key"]: field for field in config_editor.EDITABLE_FIELDS}
-        self.assertEqual(fields["CF_CHALLENGE_MANUAL_WAIT"]["type"], "bool")
-        self.assertEqual(fields["CF_CHALLENGE_POLL_INTERVAL"]["type"], "int")
-        self.assertEqual(fields["CF_CHALLENGE_MANUAL_WAIT"]["group"], "风控 / 人工处理")
-        # 人工介入超时与"自动取码失败转手动输入验证码"共用同一个配置，且放在「注册方式」分组
-        self.assertEqual(fields["MANUAL_OTP_TIMEOUT"]["group"], "注册方式")
-        self.assertEqual(fields["MANUAL_OTP_TIMEOUT"]["label"], "人工介入超时时间")
-        self.assertEqual(fields["MANUAL_OTP_TIMEOUT"]["file"], "email.py")
-
-    def test_cf_challenge_defaults(self):
-        self.assertTrue(browser.CF_CHALLENGE_MANUAL_WAIT)
-        self.assertEqual(browser.CF_CHALLENGE_POLL_INTERVAL, 5)
-
     def test_browser_data_saver_defaults_block_google_gsi(self):
         with _browser_source_defaults():
             self.assertIn(
                 "**://accounts.google.com/gsi/client**",
+                browser.BROWSER_DATA_SAVER_BLOCKED_URL_PATTERNS,
+            )
+
+    def test_browser_data_saver_defaults_block_chatgpt_rum(self):
+        with _browser_source_defaults():
+            self.assertIn(
+                "**://chatgpt.com/awe/api/v2/rum**",
                 browser.BROWSER_DATA_SAVER_BLOCKED_URL_PATTERNS,
             )
 

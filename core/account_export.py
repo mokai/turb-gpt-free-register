@@ -180,13 +180,16 @@ def _warm_auth_document_for_reauth(session: BrowserSession) -> None:
     logger.info("[2FA] Auth document 预热未通过，继续正式 authorize 重试链")
 
 
-def _post_register_dwell_seconds() -> float:
-    try:
-        from config import register as _register_cfg
+def _post_register_dwell_seconds(seconds_range: str | None = None) -> float:
+    if seconds_range is None:
+        try:
+            from config import register as _register_cfg
 
-        raw = str(getattr(_register_cfg, "POST_REGISTER_DWELL_SECONDS_RANGE", "18,45") or "0,0").strip()
-    except Exception:
-        raw = "0,0"
+            raw = str(getattr(_register_cfg, "POST_REGISTER_DWELL_SECONDS_RANGE", "5,15") or "0,0").strip()
+        except Exception:
+            raw = "0,0"
+    else:
+        raw = str(seconds_range or "0,0").strip()
     try:
         parts = [float(x.strip()) for x in raw.replace(";", ",").replace("|", ",").split(",") if x.strip()]
         if not parts:
@@ -204,9 +207,14 @@ def _post_register_dwell_seconds() -> float:
     return max(0.0, min(300.0, seconds))
 
 
-def post_register_dwell(email: str, *, label: str = "注册后") -> None:
+def post_register_dwell(
+    email: str,
+    *,
+    label: str = "注册后",
+    seconds_range: str | None = None,
+) -> None:
     """注册成功后随机停留一段时间；供不同浏览器驱动复用。"""
-    seconds = _post_register_dwell_seconds()
+    seconds = _post_register_dwell_seconds(seconds_range)
     if seconds <= 0:
         return
     logger.info("[%s] 注册成功后随机停留 %.1fs：%s", label, seconds, email)
@@ -319,6 +327,9 @@ def follow_oauth_callback(session: BrowserSession, continue_url: str, referer: s
     observe = getattr(session, "observe_chatgpt_document", None)
     if callable(observe):
         observe(resp)
+    log_cookies = getattr(session, "log_cookie_names", None)
+    if callable(log_cookies):
+        log_cookies("oauth_callback_complete")
     logger.info(f"[OAuth回调] 完成, 最终落点: {resp.url}")
     return resp.url
 
@@ -553,13 +564,41 @@ def setup_2fa(
     human_delay("api")
     _follow_reauth_with_retry(session, auth_url)
     logger.info("[2FA] 已跟随重认证 authorize URL")
+    # 浏览器登录页在落到 email-verification 后还会显式 GET
+    # /api/accounts/email-otp/send；仅跟随 authorize URL 有时只打开页面而不真正
+    # 投递邮件，尤其是复用 accessToken 的 reauth 场景。与查活/网页登录保持一致，
+    # 显式触发一次发送。
+    from core.openai_auth import send_email_otp
+    send_email_otp(session)
+    logger.info("[2FA] 已显式触发邮箱重认证 OTP 发送")
     human_delay("navigate")
 
     if otp_code is None:
         if _email_cfg.USE_EMAIL_SERVICE:
             from core.email_provider import wait_for_otp
             logger.info("[2FA] 自动等待邮箱重认证 OTP...")
-            otp_code = wait_for_otp(email, after_ts=reauth_otp_after_ts)
+            try:
+                otp_code = wait_for_otp(email, after_ts=reauth_otp_after_ts)
+            except Exception as first_wait_exc:
+                # 重认证页本身没有可靠的 resend API；重新发起一次 authorize
+                # 流程会让 auth.openai.com 再发送一封新的 OTP。只自动重发一次，
+                # 避免邮箱服务异常时无限重复触发验证码。
+                logger.warning(
+                    "[2FA] 首次等待重认证 OTP 超时，尝试重新发送验证码：%s: %s",
+                    type(first_wait_exc).__name__, str(first_wait_exc)[:180],
+                )
+                reauth_otp_after_ts = time.time()
+                resend_auth_url = _trigger_reauth_with_retry(session, email)
+                human_delay("api")
+                _follow_reauth_with_retry(session, resend_auth_url)
+                send_email_otp(session)
+                logger.info("[2FA] 已重新触发重认证 OTP，开始第二轮等待")
+                # Remail 的 receivedAt 可能比本地发送时间早几十秒（网关缓存/时钟
+                # 偏差），重发后的第二轮放宽时间下界，避免已到邮箱却被 after_ts
+                # 过滤掉；若拿到旧码，后面的 401 重试逻辑仍会校验。
+                broad_after_ts = max(0.0, reauth_otp_after_ts - 120.0)
+                logger.info("[2FA] 第二轮取码启用时间偏差容错：after_ts=%.0f", broad_after_ts)
+                otp_code = wait_for_otp(email, after_ts=broad_after_ts)
             logger.info("[2FA] 已收到邮箱重认证 OTP")
         else:
             logger.info("")

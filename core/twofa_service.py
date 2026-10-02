@@ -12,7 +12,8 @@ from config import email as _email_cfg
 from config import twofa as _twofa_cfg
 from core import db
 from core.account_export import setup_2fa
-from core.session import BrowserSession
+from core.session import BrowserSession, close_browser_session
+from core.proxy_utils import mask_proxy_url
 
 logger = logging.getLogger(__name__)
 
@@ -25,13 +26,38 @@ def _int_setting(name: str, default: int, lower: int, upper: int) -> int:
     return max(lower, min(upper, value))
 
 
-_WORKERS = _int_setting("TWOFA_WORKERS", 4, 1, 16)
+_MAX_WORKERS = 16
+_WORKERS = _int_setting("TWOFA_WORKERS", 4, 1, _MAX_WORKERS)
 _QUEUE_LIMIT = _int_setting("TWOFA_QUEUE_LIMIT", 200, _WORKERS, 5000)
-_EXECUTOR = ThreadPoolExecutor(max_workers=_WORKERS, thread_name_prefix="twofa")
-_QUEUE_SLOTS = threading.BoundedSemaphore(_QUEUE_LIMIT)
+_EXECUTOR = ThreadPoolExecutor(max_workers=_MAX_WORKERS, thread_name_prefix="twofa")
 _RUNNING: set[int] = set()
-_LOCK = threading.Lock()
+_OUTSTANDING = 0
+_LOCK = threading.Condition()
 _LOG_DIR = Path(__file__).resolve().parent.parent / "注册日志"
+
+
+def apply_settings() -> dict:
+    """Apply freshly loaded config values to the live queue service."""
+    global _WORKERS, _QUEUE_LIMIT
+    workers = _int_setting("TWOFA_WORKERS", 4, 1, _MAX_WORKERS)
+    queue_limit = _int_setting("TWOFA_QUEUE_LIMIT", 200, workers, 5000)
+    with _LOCK:
+        _WORKERS = workers
+        _QUEUE_LIMIT = queue_limit
+        _LOCK.notify_all()
+        return {
+            "workers": _WORKERS,
+            "queue_limit": _QUEUE_LIMIT,
+            "running": len(_RUNNING),
+            "outstanding": _OUTSTANDING,
+        }
+
+
+def _release_outstanding() -> None:
+    global _OUTSTANDING
+    with _LOCK:
+        _OUTSTANDING = max(0, _OUTSTANDING - 1)
+        _LOCK.notify_all()
 
 
 def log_path(email: str) -> Path:
@@ -55,6 +81,26 @@ def _normalize_proxy(proxy: str | None) -> str | None:
     return None
 
 
+def _resolve_twofa_proxy(proxy: str | None):
+    """按 TWOFA_PROXY_MODE 解析传输代理。"""
+    mode = str(getattr(_twofa_cfg, "TWOFA_PROXY_MODE", "saved") or "saved").strip().lower()
+    if mode not in {"saved", "pool"}:
+        raise ValueError(f"TWOFA_PROXY_MODE={mode!r} 无效，可选 saved / pool")
+    if mode == "pool":
+        from core.proxy_chain import open_proxy_pool_proxy
+        transport, relay = open_proxy_pool_proxy(None)
+        return transport or None, relay, "pool"
+    target = _normalize_proxy(proxy)
+    if not target:
+        # 没有可复用的目标代理时交给 BrowserSession 从代理池选择；
+        # BrowserSession 会自行管理代理池链式中继生命周期。
+        return None, None, "pool"
+    from core.proxy_chain import open_proxy_pool_proxy
+
+    transport, relay = open_proxy_pool_proxy(target)
+    return transport, relay, "saved"
+
+
 def is_running(acc_id: int) -> bool:
     with _LOCK:
         return int(acc_id) in _RUNNING
@@ -73,13 +119,17 @@ def _run_twofa(
     *, account_id: int, email: str, access_token: str, proxy: str | None,
     trigger: str, proxy_group: str = "",
 ) -> dict:
+    global _OUTSTANDING
     fh: logging.FileHandler | None = None
     session: BrowserSession | None = None
+    relay = None
     root_logger = logging.getLogger()
     thread_name = threading.current_thread().name
     task_pool_applied = False
     try:
         with _LOCK:
+            while len(_RUNNING) >= _WORKERS:
+                _LOCK.wait()
             _RUNNING.add(int(account_id))
         if not db.mark_account_totp_setup_running(account_id):
             return {"ok": False, "status": "failed", "error": "账号已删除或 2FA 状态已被重置"}
@@ -93,10 +143,9 @@ def _run_twofa(
         root_logger.addHandler(fh)
         logger.info("[2FA] 开始后台设置：email=%s trigger=%s", email, trigger)
         group = str(proxy_group or "").strip()
+        group_pool = None
         if group:
-            # 手动选中的代理分组优先级最高，覆盖账号历史出口和全局代理池。
             from config.proxy import resolve_group_pool, set_task_pool
-
             group_pool = resolve_group_pool(group)
             if group_pool:
                 set_task_pool(group_pool, name=group)
@@ -104,10 +153,21 @@ def _run_twofa(
                 _append_log(email, f"[2FA] 使用指定代理分组「{group}」（{len(group_pool)} 个出口）")
             else:
                 _append_log(email, f"[2FA] 代理分组「{group}」为空或不存在，回退全局代理配置")
-        real_proxy = _normalize_proxy(proxy)
+        # A selected task group wins over a historical proxy; the session then
+        # applies main’s pool-upstream chain and owns that relay lifecycle.
+        if group_pool:
+            real_proxy, relay, proxy_source = _resolve_twofa_proxy(None)
+        else:
+            real_proxy, relay, proxy_source = _resolve_twofa_proxy(proxy)
         identity = email.strip().lower()
         session = BrowserSession(proxy=real_proxy, fingerprint_seed=f"account:{identity}")
-        _append_log(email, f"[2FA] 会话创建完成：proxy={session.proxy or 'direct'} device_id={session.device_id}")
+        target_label = mask_proxy_url(getattr(session, "proxy_target", None) or session.proxy or "direct") or "direct"
+        transport_label = mask_proxy_url(session.proxy or "direct") or "direct"
+        _append_log(
+            email,
+            f"[2FA] 会话创建完成：target={target_label} transport={transport_label} "
+            f"source={proxy_source} device_id={session.device_id}",
+        )
         _append_log(email, f"[2FA] 指纹摘要：{session.fingerprint_summary_text()}")
         secret = setup_2fa(session, email, access_token=access_token)
         db.update_account_totp_secret(
@@ -139,7 +199,12 @@ def _run_twofa(
                 pass
         if session is not None:
             try:
-                session.session.close()
+                close_browser_session(session)
+            except Exception:
+                pass
+        if relay is not None:
+            try:
+                relay.close()
             except Exception:
                 pass
         if fh is not None:
@@ -150,17 +215,19 @@ def _run_twofa(
                 pass
         with _LOCK:
             _RUNNING.discard(int(account_id))
-        _QUEUE_SLOTS.release()
+            _OUTSTANDING = max(0, _OUTSTANDING - 1)
+            _LOCK.notify_all()
 
 
 def queue_settings() -> dict:
+    apply_settings()
     with _LOCK:
-        running = len(_RUNNING)
-    return {
-        "workers": _WORKERS,
-        "queue_limit": _QUEUE_LIMIT,
-        "running": running,
-    }
+        return {
+            "workers": _WORKERS,
+            "queue_limit": _QUEUE_LIMIT,
+            "running": len(_RUNNING),
+            "outstanding": _OUTSTANDING,
+        }
 
 
 def enqueue_account_totp_setup(
@@ -172,6 +239,8 @@ def enqueue_account_totp_setup(
     proxy: str | None = None,
     proxy_group: str = "",
 ) -> dict:
+    global _OUTSTANDING
+    apply_settings()
     account_id = int(account_id)
     email = str(email or "").strip()
     access_token = str(access_token or "").strip()
@@ -181,10 +250,12 @@ def enqueue_account_totp_setup(
         return {"accepted": False, "busy": False, "error": "缺少 access_token"}
     if not bool(getattr(_email_cfg, "USE_EMAIL_SERVICE", False)):
         return {"accepted": False, "busy": False, "error": "启用 2FA 需要先开启 USE_EMAIL_SERVICE 自动收取邮箱验证码"}
-    if not _QUEUE_SLOTS.acquire(blocking=False):
-        return {"accepted": False, "busy": False, "queue_full": True, "error": "2FA 队列已满，请稍后重试"}
+    with _LOCK:
+        if _OUTSTANDING >= _QUEUE_LIMIT:
+            return {"accepted": False, "busy": False, "queue_full": True, "error": "2FA 队列已满，请稍后重试"}
+        _OUTSTANDING += 1
     if not db.claim_account_totp_setup(acc_id=account_id, trigger=trigger):
-        _QUEUE_SLOTS.release()
+        _release_outstanding()
         return {"accepted": False, "busy": True, "error": "该账号正在设置 2FA"}
 
     _append_log(email, f"[2FA] 已入队 account_id={account_id} trigger={trigger}", clear=True)
@@ -200,6 +271,6 @@ def enqueue_account_totp_setup(
         )
         return {"accepted": True, "busy": False, "future": future, "log_path": str(log_path(email))}
     except Exception as exc:
-        _QUEUE_SLOTS.release()
+        _release_outstanding()
         db.update_account_totp_secret(account_id, {"ok": False, "status": "failed", "error": f"{type(exc).__name__}: {exc}"})
         return {"accepted": False, "busy": False, "error": f"{type(exc).__name__}: {exc}"}

@@ -123,6 +123,7 @@ def _compact_account_for_list(row: dict) -> dict:
     for key in (
         "user_name", "email_source", "original_email", "note", "archived", "created_at",
         "plan_type", "current_plan_type", "plus_trial_eligible",
+        "eligible_promo_campaigns", "plus_trial_discount_percentage",
         "plan_check_status", "codex_status", "codex_agent_status",
         "totp_setup_status",
     ):
@@ -2659,17 +2660,17 @@ def create_app(auth_code: str | None = None) -> Flask:
             return jsonify({"ok": False, "error": str(exc)}), 400
 
     # ----------------------------------------------------------
-    # 人工处理（Cloudflare 风控页等：必须在浏览器窗口里手动操作，脚本代不了）
+    # 通用页面人工处理 API（邮箱 OTP 使用独立的 /api/manual-otp 接口）
     # ----------------------------------------------------------
     @app.get("/api/manual-intervention/pending")
     def api_manual_intervention_pending():
-        """轮询当前等待人工处理的请求；前端据此弹框提醒并展示定时复检进度。"""
+        """列出等待人工处理的通用页面请求。"""
         from core import manual_intervention
         return jsonify({"ok": True, "items": manual_intervention.list_pending()})
 
     @app.post("/api/manual-intervention/ack")
     def api_manual_intervention_ack():
-        """用户点「我已处理完成」：立即触发一次页面复检，不再等下一个轮询周期。"""
+        """通知等待中的页面处理请求立即复检。"""
         from core import manual_intervention
         data = request.get_json(silent=True) or {}
         request_id = str(data.get("request_id") or "").strip()
@@ -2683,11 +2684,11 @@ def create_app(auth_code: str | None = None) -> Flask:
 
     @app.post("/api/manual-intervention/cancel")
     def api_manual_intervention_cancel():
-        """用户放弃手动处理：等待侧立即失败，对应任务记为失败。"""
+        """取消等待中的页面人工处理请求。"""
         from core import manual_intervention
         data = request.get_json(silent=True) or {}
         request_id = str(data.get("request_id") or "").strip()
-        reason = str(data.get("reason") or "").strip() or "用户在 WebUI 取消人工处理"
+        reason = str(data.get("reason") or "").strip() or "用户取消人工处理"
         if not request_id:
             return jsonify({"ok": False, "error": "request_id 为空"}), 400
         try:
@@ -3486,6 +3487,8 @@ def create_app(auth_code: str | None = None) -> Flask:
         try:
             import config as _config_pkg
             _config_pkg.reload_all()
+            from core import twofa_service
+            twofa_service.apply_settings()
         except Exception as exc:
             reload_ok = False
             reload_err = f"{type(exc).__name__}: {exc}"

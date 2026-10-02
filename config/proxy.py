@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-from __future__ import annotations
-
 """
 代理池配置
 
@@ -35,6 +33,9 @@ PROXY_POOL = [
     "socks5://127.0.0.1:7897",
 ]
 
+# Optional first hop for the default proxy pool.
+PROXY_POOL_UPSTREAM_PROXY = ""
+
 # 默认分组名。WebUI 中显示的"默认分组"就是这个池子；只有一个分组时它就是默认分组。
 # 可在配置页「代理池」把任意分组「设为默认」，保存时写入 .env 的 DEFAULT_PROXY_GROUP。
 DEFAULT_PROXY_GROUP = "默认"
@@ -43,11 +44,9 @@ DEFAULT_PROXY_GROUP = "默认"
 # 这里**只放符号化写法**：不能再放「默认」「默认分组」这类词——用户完全可以把某个
 # 分组真的命名为「默认」，一旦当成别名就会被强行改写成默认分组名，导致该分组消失。
 _DEFAULT_GROUP_ALIASES = {"", "-", "*", "default"}
-
 # 命名代理分组：{分组名: [代理 URL, ...]}。默认分组单独用 PROXY_POOL 承载，
 # 因此这里只保存额外命名的分组（例如 KN / IN）。
 PROXY_GROUPS: dict[str, list[str]] = {}
-
 # 代理出口测试（IP2Location）地址：每行一个，按顺序探活，第一个可用的即作为结论。
 # IP2Location 免密钥接口限 1000 次/天，因此默认放在最前面。
 PROXY_TEST_GEO_URLS = [
@@ -56,10 +55,9 @@ PROXY_TEST_GEO_URLS = [
     "https://ipapi.co/json",
 ]
 PROXY_TEST_TIMEOUT = 12.0
-
 # 套餐/Plus 试用资格查询与 Codex Agent Token 生成共用这组独立网络策略，
 # 避免批量请求被注册代理池中的临时本地代理拖垮，也避免无条件直连造成出口策略失控。
-#   auto   = 优先使用 PLAN_CHECK_PROXY 或代理池；本地代理端口未监听时回退直连
+#   auto   = 优先使用 PLAN_CHECK_PROXY 或代理池；没有代理时才按 direct 运行
 #   proxy  = 强制使用 PLAN_CHECK_PROXY 或代理池，失败直接报错
 #   direct = 始终直连
 PLAN_CHECK_PROXY_MODE = "auto"
@@ -69,11 +67,13 @@ PLAN_CHECK_PROXY_MODE = "auto"
 # 代理可能包含账号密码，因此 WebUI 会把它保存到 .env。
 PLAN_CHECK_PROXY: list[str] = []
 
+# Optional first hop for plan-check and Codex-token traffic.
+PLAN_CHECK_UPSTREAM_PROXY = ""
+
 # 邮箱换绑专用代理池（每行一个）。留空时换绑沿用通用代理池（PROXY_POOL）选路。
 # 配置后，换绑本身的网络请求（change_email begin/verify、新邮箱会话）优先从这组
 # 代理中选取；换绑过程中涉及的查活 / 原邮箱重认证步骤仍然使用通用代理池。
 EMAIL_CHANGE_PROXY_POOL: list[str] = []
-
 # 查套餐 / 生成 Codex Agent Token 使用独立的短超时和有限重试，避免后台任务长时间卡住。
 PLAN_CHECK_TIMEOUT = 15.0
 PLAN_CHECK_MAX_ATTEMPTS = 3
@@ -90,76 +90,9 @@ PLAN_CHECK_QUEUE_LIMIT = 500
 PLAN_CHECK_MIN_INTERVAL = 1.0
 PLAN_CHECK_JITTER = 0.8
 
-# 自适应代理池：
-#   True  = 403/429/网络失败时把当前出口临时降权，下一次从池中换新出口
-#   False = 保持单纯随机抽取，不记录出口健康状态
-PROXY_ADAPTIVE_ROUTING = True
-PROXY_COOLDOWN_403_SECONDS = 900
-PROXY_COOLDOWN_429_SECONDS = 300
-PROXY_MAX_ROUTE_ATTEMPTS = 4
-
-_PROXY_HEALTH: dict[str, dict[str, float | int | str]] = {}
-_PROXY_HEALTH_LOCK = threading.Lock()
-
-
-def _proxy_key(value: str | None) -> str:
-    return str(value or "").strip()
-
-
-def report_proxy_result(
-    proxy: str | None,
-    *,
-    status: int | None = None,
-    ok: bool | None = None,
-    error: str = "",
-) -> None:
-    """记录代理出口健康状态，供后续自适应选路使用。"""
-    key = _proxy_key(proxy)
-    if not key or not PROXY_ADAPTIVE_ROUTING:
-        return
-    now = time.time()
-    status = int(status or 0)
-    with _PROXY_HEALTH_LOCK:
-        item = _PROXY_HEALTH.setdefault(key, {"failures": 0, "cooldown_until": 0.0})
-        if ok is True or status in range(200, 400):
-            item["failures"] = 0
-            item["cooldown_until"] = 0.0
-            item["last_ok"] = now
-            return
-
-        if status == 403:
-            cooldown = max(0, int(PROXY_COOLDOWN_403_SECONDS))
-        elif status == 429:
-            cooldown = max(0, int(PROXY_COOLDOWN_429_SECONDS))
-        else:
-            cooldown = 60
-        item["failures"] = int(item.get("failures", 0) or 0) + 1
-        item["cooldown_until"] = now + cooldown
-        item["last_error"] = str(error or f"HTTP {status}" if status else error)[:300]
-
-
-def proxy_is_cooling_down(proxy: str | None) -> bool:
-    key = _proxy_key(proxy)
-    if not key or not PROXY_ADAPTIVE_ROUTING:
-        return False
-    with _PROXY_HEALTH_LOCK:
-        item = _PROXY_HEALTH.get(key) or {}
-        return float(item.get("cooldown_until", 0.0) or 0.0) > time.time()
-
 
 def _valid_port(value: str) -> bool:
     return value.isdigit() and 1 <= int(value) <= 65535
-
-
-def _clean_credential(value: str) -> str:
-    """代理认证信息原样保留。
-
-    这里**不要**做 percent-encoding：requests / curl_cffi 不会解码 userinfo，
-    把「用户名:密码」编码成 %E7%94%A8… 会把编码后的字面量直接发给代理，
-    导致认证失败。只去掉会破坏 URL 结构的字符（``/`` 会被当成路径分隔，
-    空白会被截断；``@`` 保留，取 userinfo 时按最后一个 ``@`` 切分仍然正确）。
-    """
-    return str(value or "").strip().replace("/", "").replace(" ", "").replace("\t", "")
 
 
 def normalize_proxy_url(value: str, default_scheme: str = "http") -> str:
@@ -171,15 +104,13 @@ def normalize_proxy_url(value: str, default_scheme: str = "http") -> str:
     text = str(value or "").strip()
     if not text or "://" in text:
         return text
-
     parts = text.split(":", 3)
     if len(parts) == 4 and parts[0] and _valid_port(parts[1]) and parts[2] and parts[3]:
         host, port, username, password = parts
-        return f"{default_scheme}://{_clean_credential(username)}:{_clean_credential(password)}@{host}:{port}"
+        return f"{default_scheme}://{quote(username, safe='')}:{quote(password, safe='')}@{host}:{port}"
     if len(parts) == 4 and parts[0] and parts[1] and parts[2] and _valid_port(parts[3]):
         username, password, host, port = parts
-        return f"{default_scheme}://{_clean_credential(username)}:{_clean_credential(password)}@{host}:{port}"
-
+        return f"{default_scheme}://{quote(username, safe='')}:{quote(password, safe='')}@{host}:{port}"
     parsed = urlparse(f"//{text}")
     try:
         port = parsed.port
@@ -428,27 +359,25 @@ def pick_proxy(
             candidates = healthy
     return random.choice(candidates)
 
+# 兼容入口：默认每次进程启动随机选一个，作为本次注册全程的固定代理
+PROXY = pick_proxy()
 
 # ---- .env overrides for WebUI editable fields ----
 apply_env_overrides(globals(), {
-    # DEFAULT_PROXY_GROUP 必须排在 PROXY_GROUPS 前面：下面解析分组文本时要用它
-    # 判断"哪一行是默认分组"，顺序反了会拿旧默认名去解析。
     'DEFAULT_PROXY_GROUP': 'str',
     'PROXY_POOL': 'list_str_multiline',
     'PROXY_GROUPS': 'proxy_groups',
     'PROXY_TEST_GEO_URLS': 'list_str_multiline',
     'PROXY_TEST_TIMEOUT': 'float',
+    'PROXY_POOL_UPSTREAM_PROXY': 'str',
     'PLAN_CHECK_PROXY_MODE': 'str',
     'PLAN_CHECK_PROXY': 'list_str_multiline',
+    'PLAN_CHECK_UPSTREAM_PROXY': 'str',
     'EMAIL_CHANGE_PROXY_POOL': 'list_str_multiline',
     'PLAN_CHECK_TIMEOUT': 'float',
     'PLAN_CHECK_MAX_ATTEMPTS': 'int',
     'PLAN_CHECK_RETRY_DELAY': 'float',
     'PLAN_CHECK_REGISTRATION_RECHECK_DELAY': 'float',
-    'PROXY_ADAPTIVE_ROUTING': 'bool',
-    'PROXY_COOLDOWN_403_SECONDS': 'int',
-    'PROXY_COOLDOWN_429_SECONDS': 'int',
-    'PROXY_MAX_ROUTE_ATTEMPTS': 'int',
     'PLAN_CHECK_WORKERS': 'int',
     'PLAN_CHECK_QUEUE_LIMIT': 'int',
     'PLAN_CHECK_MIN_INTERVAL': 'float',

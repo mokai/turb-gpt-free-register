@@ -30,13 +30,13 @@ def test_probe_recovery_returns_and_keeps_item_for_ui():
         calls["n"] += 1
         if calls["n"] >= 2:
             return {"recovered": True, "status_text": "页面已恢复正常，流程继续", "detail": "当前页面：登录页"}
-        return {"recovered": False, "status_text": "仍是 Cloudflare 人机验证", "detail": "页面标题：Just a moment"}
+        return {"recovered": False, "status_text": "仍需完成页面验证", "detail": "当前页面仍在等待验证"}
 
     result = mi.request_manual_intervention(
         probe=probe,
-        kind="cloudflare_challenge",
-        title="需要你手动完成 Cloudflare 验证",
-        guide="请在浏览器窗口里点击验证框",
+        kind="page_verification",
+        title="需要你手动处理页面",
+        guide="请在浏览器窗口里完成页面验证",
         url="https://chatgpt.com/auth/login",
         email="a@b.com",
         job_id=7,
@@ -49,13 +49,13 @@ def test_probe_recovery_returns_and_keeps_item_for_ui():
     assert result["checks"] == 2
     assert result["email"] == "a@b.com"
     assert result["job_id"] == 7
-    assert result["kind_label"] == "Cloudflare 风控验证"
+    assert result["kind_label"] == "页面验证"
 
     # 结束后请求在前端多停留几秒（grace），让用户看到"已恢复"，而不是瞬间消失
     items = mi.list_pending()
     assert len(items) == 1
     assert items[0]["status"] == mi.STATUS_RECOVERED
-    assert items[0]["guide"] == "请在浏览器窗口里点击验证框"
+    assert items[0]["guide"] == "请在浏览器窗口里完成页面验证"
     assert items[0]["remaining"] is not None
 
 
@@ -72,8 +72,8 @@ def test_ack_wakes_up_wait_immediately():
         started["at"] = time.time()
         holder["result"] = mi.request_manual_intervention(
             probe=probe,
-            kind="cloudflare_challenge",
-            title="需要你手动完成 Cloudflare 验证",
+            kind="page_verification",
+            title="需要你手动处理页面",
             timeout=120,
             poll_interval=30,   # 故意很长：只能靠 ack 唤醒
         )
@@ -103,8 +103,8 @@ def test_cancel_raises_cancelled():
         try:
             mi.request_manual_intervention(
                 probe=lambda: {"recovered": False},
-                kind="cloudflare_challenge",
-                title="需要你手动完成 Cloudflare 验证",
+                kind="page_verification",
+                title="需要你手动处理页面",
                 timeout=120,
                 poll_interval=30,
             )
@@ -128,8 +128,8 @@ def test_timeout_raises_timeout_error():
     with pytest.raises(mi.ManualInterventionTimeout):
         mi.request_manual_intervention(
             probe=lambda: {"recovered": False, "status_text": "仍是风控页"},
-            kind="cloudflare_challenge",
-            title="需要你手动完成 Cloudflare 验证",
+            kind="page_verification",
+            title="需要你手动处理页面",
             timeout=5,
             poll_interval=1,
         )
@@ -150,8 +150,8 @@ def test_stop_requested_aborts_wait(monkeypatch):
     with pytest.raises(_Stop):
         mi.request_manual_intervention(
             probe=lambda: {"recovered": False},
-            kind="cloudflare_challenge",
-            title="需要你手动完成 Cloudflare 验证",
+            kind="page_verification",
+            title="需要你手动处理页面",
             timeout=120,
             poll_interval=1,
         )
@@ -160,7 +160,7 @@ def test_stop_requested_aborts_wait(monkeypatch):
 
 def test_terminal_status_is_purged_after_grace():
     """终态（恢复/超时/取消）要能自动消失，否则弹框会一直挂在页面上。"""
-    item = mi.mark_pending(kind="cloudflare_challenge", title="需要你手动完成 Cloudflare 验证", timeout=60)
+    item = mi.mark_pending(kind="page_verification", title="需要你手动处理页面", timeout=60)
     rid = item["request_id"]
 
     mi.note_status(rid, status=mi.STATUS_RECOVERED, status_text="页面已恢复正常，流程继续")
@@ -184,8 +184,8 @@ def test_probe_exception_does_not_abort_waiting():
 
     result = mi.request_manual_intervention(
         probe=probe,
-        kind="cloudflare_challenge",
-        title="需要你手动完成 Cloudflare 验证",
+        kind="page_verification",
+        title="需要你手动处理页面",
         timeout=30,
         poll_interval=1,
     )

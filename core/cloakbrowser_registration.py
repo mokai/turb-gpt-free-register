@@ -22,7 +22,6 @@ from core.roxy_registration import (  # noqa: F401
     _maybe_accept, _submit_email_and_wait_next, _fill_password_page_if_present,
     _clear_otp_inputs, _type_otp, _click_continue, _wait_after_email_otp_submit,
     _click_resend_email_otp, _complete_profile_page, _fetch_chatgpt_session, _check_manual_stop,
-    clear_cf_context, set_cf_context, update_cf_context,
 )
 
 logger = logging.getLogger(__name__)
@@ -51,7 +50,6 @@ def run_cloak_registration(
         # 共享页面操作函数（roxy_registration）默认按 Roxy 超时等待，
         # Cloak 走自己的 CLOAK_SELENIUM_TIMEOUT。
         timeout_token = _SELENIUM_TIMEOUT_OVERRIDE.set(int(getattr(_cfg, "CLOAK_SELENIUM_TIMEOUT", 90) or 90))
-        set_cf_context(email=email, task="注册")
         try:
             traffic_tracker = PlaywrightTrafficTracker(driver.context, label="Cloak")
         except Exception as exc:
@@ -76,7 +74,6 @@ def run_cloak_registration(
             email = acquire_email_after_input(email)
             if on_email_acquired:
                 on_email_acquired(email)
-            update_cf_context(email=email)
             return email
 
         next_state = _submit_email_and_wait_next(
@@ -181,7 +178,7 @@ def run_cloak_registration(
             access_token=access_token,
             totp_secret=totp_secret,
             email_source=resolve_email_source(email),
-            proxy_used=((opened.raw or {}).get("proxy") if opened else None) or proxy or None,
+            proxy_used=((opened.raw or {}).get("proxy_pool_target") if opened else None) or proxy or None,
             batch_dir=batch_dir,
             extra={
                 "user": session_info.get("user"),
@@ -227,7 +224,6 @@ def run_cloak_registration(
             "error": f"{type(exc).__name__}: {str(exc)[:300]}",
         }
     finally:
-        clear_cf_context()
         if traffic_tracker is not None:
             try:
                 traffic_tracker.stop()
