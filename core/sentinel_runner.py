@@ -63,6 +63,57 @@ _FLOW_PAGE_URL = {
 # Node 子进程超时（秒）。sdk.js 内部可能要做 PoW，留充裕一点
 _RUNNER_TIMEOUT = 60
 
+# ── Agent 沙箱环境隔离 ────────────────────────────────────────────────
+# WorkBuddy / CodeBuddy 之类的 Agent 沙箱会在 shell 里注入：
+#   NODE_OPTIONS=--require ".../shim/node-language-shim.cjs"
+#   CODEBUDDY_BROKERED_FS_HOOK_ENABLED=1
+#   CODEBUDDY_SANDBOX_BROKER_IPC_ADDRESS=<该 Agent 会话的 broker.sock>
+#   SANDBOX_* / TOYBOX_*
+# 如果 WebUI 进程是从 Agent 会话里拉起来的（例如用 subprocess.Popen 重启），它会整套继承。
+# 于是我们 spawn 出来的 node 会被 brokered-fs shim 接管：fs.readFileSync 改走 broker IPC，
+# 而那个 socket 只属于当初创建 WebUI 的那个 Agent 会话，会话一结束就是
+#   Error: connect failed: Connection refused
+# sentinel token 必然生成失败（表现为查活 100% 失败），与出口 IP / TLS 指纹都无关。
+# 因此 spawn 前显式剥离，保证 sentinel-runner.js 在干净环境里跑。
+_SANDBOX_ENV_PREFIXES = ("CODEBUDDY_", "SANDBOX_", "TOYBOX_", "CLAUDE_", "GENIE_")
+_SANDBOX_ENV_KEYS = ("NODE_OPTIONS", "NODE_REPL_EXTERNAL_MODULE")
+# PATH 里被塞入的 shim 目录（brokered-bin / safe-bin 等），一并剔除
+_SANDBOX_PATH_MARKERS = ("/cli/vendor/shim/",)
+# 命中这些特征说明 node 子进程确实被沙箱 shim 接管了
+_SANDBOX_SHIM_SIGNATURES = ("node-brokered-fs-shim", "node-language-shim", "requestbrokersync")
+
+
+def _sandbox_free_env() -> dict:
+    """返回一份剥离了 Agent 沙箱注入项的环境变量副本。"""
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in _SANDBOX_ENV_KEYS and not key.startswith(_SANDBOX_ENV_PREFIXES)
+    }
+    path = env.get("PATH")
+    if path:
+        kept = [
+            part
+            for part in path.split(os.pathsep)
+            if not any(marker in part for marker in _SANDBOX_PATH_MARKERS)
+        ]
+        if kept:
+            env["PATH"] = os.pathsep.join(kept)
+    return env
+
+
+def _sandbox_shim_hint(stderr: str) -> str:
+    """node 子进程被沙箱 shim 接管时返回可读根因提示，否则返回空串。"""
+    lowered = (stderr or "").lower()
+    if not any(sig in lowered for sig in _SANDBOX_SHIM_SIGNATURES):
+        return ""
+    return (
+        "\n[根因提示] 检测到 Agent 沙箱 node shim 污染：node 子进程被 "
+        "node-language-shim.cjs / node-brokered-fs-shim.cjs 接管，"
+        "broker IPC socket 属于已结束的 Agent 会话，连接必然失败。"
+        "请在不带沙箱环境变量的终端里启动 WebUI（webui.sh 已内置环境清理）。"
+    )
+
 
 def _resolve_node_executable() -> str:
     """
@@ -252,8 +303,10 @@ def generate_sentinel_token(
         logger.info(f"[SentinelRunner] 调用 Node 生成 token, flow={flow}")
         logger.debug(f"[SentinelRunner] 命令: {' '.join(cmd)}")
 
-        # 关键：禁用 sentinel.config.json 自动发现（避免外部配置干扰）
-        env = os.environ.copy()
+        # 关键：禁用 sentinel.config.json 自动发现（避免外部配置干扰），
+        # 并剥离 Agent 沙箱注入的 NODE_OPTIONS / broker 变量
+        # （否则 node 会被 brokered-fs shim 劫持，见 _sandbox_free_env 注释）。
+        env = _sandbox_free_env()
         env.pop("SENTINEL_CONFIG", None)
         env["SENTINEL_CONFIG"] = "__none__"  # 故意指向不存在的文件，跳过 fallback 列表
         env["TZ"] = timezone_iana  # 让 Node VM 里的 Date.toString() 与 Python p 指纹时区一致
@@ -285,6 +338,7 @@ def generate_sentinel_token(
                 f"sentinel-runner.js 退出码 {proc.returncode}\n"
                 f"stderr: {stderr}\n"
                 f"stdout: {stdout}"
+                f"{_sandbox_shim_hint(stderr)}"
             )
 
         token_text = (proc.stdout or "").strip()

@@ -27,6 +27,33 @@ def _rotate_document_navigation_id(session: BrowserSession) -> None:
         rotate()
 
 
+def _report_authorize_cf_challenged_proxy(session: BrowserSession, exc: BaseException) -> bool:
+    """authorize 被 Cloudflare 挑战时把该出口记入自适应路由冷却。
+
+    返回该异常是否确实是 CF 主动挑战（``cf-mitigated=challenge``）。
+
+    为什么需要单独上报：``_network_preflight_with_retry`` 只在**自身**的异常分支里
+    调 ``_report_cf_challenged_proxy``（core/account_liveness.py），而
+    ``auth.openai.com/api/accounts/authorize`` 是 preflight 之后单独请求的一跳，
+    覆盖不到。不上报的话被挑战的出口不进 900s 冷却，上层换路时 ``pick_proxy()``
+    还会把同一个坏出口发回来（实测该出口的挑战是纯 IP 信誉，与 TLS 指纹无关）。
+
+    延迟导入避免 core.account_liveness ↔ core.openai_auth 形成循环依赖。
+    """
+    try:
+        from core.account_liveness import (
+            _is_cf_challenge_error,
+            _report_cf_challenged_proxy,
+        )
+    except Exception:  # pragma: no cover - 依赖不可用时不阻断登录链
+        logger.debug("[步骤4] 加载 CF 挑战上报依赖失败", exc_info=True)
+        return False
+    if not _is_cf_challenge_error(exc):
+        return False
+    _report_cf_challenged_proxy(session)
+    return True
+
+
 class EmailOtpInvalidError(RuntimeError):
     """邮箱验证码无效/过期，可重新发送后重试。"""
 
@@ -287,12 +314,16 @@ def follow_authorize(session: BrowserSession, authorize_url: str) -> str:
             return final_url
         except Exception as exc:
             last_exc = exc
+            # CF 托管挑战绑定出口 IP 信誉，先把坏出口送进自适应路由冷却，避免
+            # 上层换路时又抽到它（authorize 这一跳不在 preflight 的上报范围内）。
+            cf_challenged = _report_authorize_cf_challenged_proxy(session, exc)
             # authorize 的 403 是边缘风控对当前出口/会话的明确拒绝，不是瞬时网络
             # 故障。同 URL、同 state、同出口连续重放既不会改善结果，还会扩大
             # 当前会话的异常请求特征；立即停止并交由上层回收邮箱。
             if _exception_http_status(exc) == 403:
                 logger.warning(
-                    "[步骤4] authorize 被 HTTP 403 拒绝，停止当前会话，不重复重放 OAuth state"
+                    "[步骤4] authorize 被 HTTP 403 拒绝（%s），停止当前会话，不重复重放 OAuth state",
+                    "Cloudflare 挑战，该出口已记入冷却" if cf_challenged else "非 Cloudflare 挑战",
                 )
                 raise
             if not _is_retryable_authorize_error(exc):

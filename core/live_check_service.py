@@ -25,6 +25,12 @@ _NETWORK_RETRY_HINTS = (
     "403", "429", "502", "503", "504", "proxy", "socks", "timeout",
     "timed out", "connection", "closed", "reset",
 )
+# 本地环境故障（Agent 沙箱 shim 污染等）：与出口 IP 完全无关，换代理重试纯属浪费，
+# 而且 stderr 里的 "Connection refused" 会被 _NETWORK_RETRY_HINTS 的 "connection"
+# 误命中、把本地故障报成「代理网络/403 错误」。所以必须先于网络特征判定。
+_LOCAL_FAILURE_HINTS = (
+    "node-brokered-fs-shim", "node-language-shim", "requestbrokersync",
+)
 
 
 def _configured_live_check_proxies(proxy_cfg) -> list[str]:
@@ -50,6 +56,8 @@ def _retryable_live_check_result(result: dict) -> bool:
     if result.get("ok") or result.get("status") == "deactivated":
         return False
     text = str(result.get("error") or "").lower()
+    if any(hint in text for hint in _LOCAL_FAILURE_HINTS):
+        return False
     return any(hint in text for hint in _NETWORK_RETRY_HINTS)
 
 

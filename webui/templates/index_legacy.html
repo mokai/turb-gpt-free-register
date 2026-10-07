@@ -849,6 +849,9 @@ function _renderPager(id, total) {
 }
 
 function _reloadPagedList(id) {
+  // 翻页 / 改「每页条数」后，选中的是上一页的行：必须清空，
+  // 否则「已选 N」和批量按钮会指向当前看不到的账号（与筛选变更时的处理保持一致）。
+  if (id === 'accounts') ACCOUNT_SELECTED.clear();
   ({ jobs: refreshJobs, accounts: loadAccounts, outlook: loadOutlook, codex: loadCodex })[id]?.();
 }
 function pagerGo(id, dir) {
@@ -1351,7 +1354,13 @@ async function loadAccounts() {
     ACCOUNTS = res.items || [];
     ACCOUNTS_TOTAL = Number(res.total || ACCOUNTS.length || 0);
     const totalPages = Math.max(1, Math.ceil(ACCOUNTS_TOTAL / p.size));
-    if (p.page > totalPages) { p.page = totalPages; accountsLoading = false; return loadAccounts(); }
+    if (p.page > totalPages) {
+      // 页码被裁到最后一页等同于翻页：选中的行已经不在了，一并清空。
+      p.page = totalPages;
+      ACCOUNT_SELECTED.clear();
+      accountsLoading = false;
+      return loadAccounts();
+    }
     renderAccounts();
   } catch(e) { showToast('加载账号失败: ' + e.message); }
   finally { accountsLoading = false; }

@@ -22,7 +22,10 @@ from typing import Iterable
 
 logger = logging.getLogger(__name__)
 
-_VALID_SOURCES = ("outlook", "generic_api", "imap", "cloudflare_domain", "cloudflare", "gptmail", "mailnest", "cloudmail", "remail")
+_VALID_SOURCES = ("outlook", "generic_api", "imap", "cloudflare_domain", "cloudflare", "gptmail", "mailnest", "cloudmail", "remail", "icloud_hme")
+
+#: 公开别名：注册 / 换绑等调用方复用同一份来源白名单，新增邮箱服务商时只需改上面一行。
+VALID_EMAIL_SOURCES = _VALID_SOURCES
 
 
 def parse_email_sources(value=None) -> list[str]:
@@ -74,6 +77,9 @@ def _pick_from_source(source: str) -> str:
         return pick_account().email
     if source == "remail":
         from core.remail_client import pick_account
+        return pick_account().email
+    if source == "icloud_hme":
+        from core.icloud_hme_client import pick_account
         return pick_account().email
     from core.outlook_client import pick_account
     return pick_account().email
@@ -150,6 +156,9 @@ def resolve_email_source(email: str) -> str:
     from core.remail_client import get_account_context as get_remail_context
     if get_remail_context(email):
         return "remail"
+    from core.icloud_hme_client import get_account_context as get_icloud_hme_context
+    if get_icloud_hme_context(email):
+        return "icloud_hme"
 
     from core import db
     if db.get_imap_email_by_email(email):
@@ -271,6 +280,18 @@ def resolve_code_url(email: str, source: str | None = None) -> str:
         except Exception:
             pass
 
+    # 2.2) iCloud HME 没有面向人工的取码链接（取件要走带 API Key 的开放接口），
+    #      给平台管理页地址，便于用户自己搜该邮箱的邮件。
+    if src == "icloud_hme":
+        try:
+            from core import icloud_hme_client
+
+            base = icloud_hme_client._base_url()
+            if base:
+                return base + "/"
+        except Exception:
+            pass
+
     # 3) generic_api 约定拼接
     if src == "generic_api":
         try:
@@ -305,6 +326,9 @@ def _dispatch_auto_otp(source: str, email: str, after_ts: float, extra_kwargs: d
         return fetch_latest_otp(email, after_ts=after_ts, **extra_kwargs)
     if source == "remail":
         from core.remail_client import fetch_latest_otp
+        return fetch_latest_otp(email, after_ts=after_ts, **extra_kwargs)
+    if source == "icloud_hme":
+        from core.icloud_hme_client import fetch_latest_otp
         return fetch_latest_otp(email, after_ts=after_ts, **extra_kwargs)
     from core.outlook_client import fetch_latest_otp
     return fetch_latest_otp(email, after_ts=after_ts, **extra_kwargs)
@@ -466,6 +490,9 @@ def release_email(email: str, status: str = "available", note: str | None = None
     elif source == "remail":
         from core.remail_client import release_account
         release_account(email, status=status, note=note)
+    elif source == "icloud_hme":
+        from core.icloud_hme_client import release_account
+        release_account(email, status=status, note=note)
     else:
         from core.outlook_client import release_account
         release_account(email, status=status, note=note)
@@ -521,7 +548,9 @@ def recycle_released_email(
        不能再用 ``resolve_email_source`` 现猜：换绑会把账号来源改写成新邮箱的
        来源，且临时邮箱上下文会随进程变化，猜错就会把邮箱记到别的来源上。
     2. 池内来源（outlook / generic_api / imap / cloudflare_domain）复位为
-       available；临时邮箱来源本地没有池记录，直接 skipped，不伪造记录。
+       available；iCloud HME 的池在平台侧，改为调用其 release 接口把别名
+       放回项目可用池（mode=platform_release）；其余临时邮箱来源本地没有
+       池记录，直接 skipped，不伪造记录。
     3. 池记录缺失时只有 outlook（账号里存了同一份凭证）和域名邮箱（只需地址）
        能重建，其余来源的连接配置只存在于池记录里，只能 skipped 并说明原因。
 
@@ -538,7 +567,32 @@ def recycle_released_email(
         stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
         note = f"账号 #{int(account_id)} 换绑释放，{stamp}" if account_id else f"换绑释放，{stamp}"
 
-    result = db.recycle_email_to_pool(target, normalized, note=note, credentials=credentials)
+    # iCloud HME 的池在平台侧（按项目独立记占用），本地没有池记录可复位，
+    # 所以不写本地池，直接通知平台把该别名放回项目的可用池。
+    if normalized == "icloud_hme":
+        try:
+            from core import icloud_hme_client
+
+            released = icloud_hme_client.release_account(target, status="available", note=note)
+            result = {
+                "ok": bool(released),
+                "source": "icloud_hme",
+                "mode": "platform_release" if released else "skipped",
+                "message": (
+                    "已通知 iCloud HME 平台把该别名放回项目可用池"
+                    if released
+                    else "释放 iCloud HME 别名失败，详见日志"
+                ),
+            }
+        except Exception as exc:  # noqa: BLE001 - 释放失败不阻断换绑主流程
+            result = {
+                "ok": False,
+                "source": "icloud_hme",
+                "mode": "skipped",
+                "message": f"释放 iCloud HME 别名失败: {type(exc).__name__}: {exc}",
+            }
+    else:
+        result = db.recycle_email_to_pool(target, normalized, note=note, credentials=credentials)
     if result.get("ok"):
         logger.info(
             "[EmailProvider] 换绑释放的原邮箱已回池: source=%s, mode=%s, email=%s",

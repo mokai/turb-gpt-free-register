@@ -21,6 +21,28 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
+# ── 启动前环境清理（务必保留）────────────────────────────────────────────
+# 1) Agent 沙箱（WorkBuddy / CodeBuddy 等）注入的变量。NODE_OPTIONS 指向
+#    node-language-shim.cjs，配合 CODEBUDDY_BROKERED_FS_HOOK_ENABLED=1 与
+#    CODEBUDDY_SANDBOX_BROKER_IPC_ADDRESS，会让 WebUI 的 node 子进程
+#    （sentinel 生成 token）被 brokered-fs shim 接管；而那个 broker socket 只属于
+#    启动 WebUI 的那个 Agent 会话，会话结束即 "connect failed: Connection refused"
+#    → 查活/注册会在 sentinel 步骤 100% 失败。从 Agent 会话里重启 WebUI 时尤其要清。
+# 2) shell 层代理。WebUI 的出口代理按账号显式配置，继承 HTTP_PROXY 会把 Selenium /
+#    curl_cffi 一起拖下水（no_proxy 写 '*' 更会连显式代理都绕过）。
+for _v in NODE_OPTIONS NODE_REPL_EXTERNAL_MODULE \
+          HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy \
+          NO_PROXY no_proxy; do
+  unset "$_v" 2>/dev/null || true
+done
+while IFS='=' read -r _k _rest; do
+  case "$_k" in
+    CODEBUDDY_*|SANDBOX_*|TOYBOX_*|CLAUDE_*|GENIE_*) unset "$_k" 2>/dev/null || true ;;
+  esac
+done < <(env)
+export no_proxy="127.0.0.1,localhost,::1"
+unset _v _k _rest
+
 RUN_DIR="$ROOT_DIR/run"
 LOG_DIR="$ROOT_DIR/logs"
 PID_FILE="$RUN_DIR/webui.pid"
@@ -151,8 +173,23 @@ cmd_start() {
 
   echo "启动 WebUI：http://${HOST}:${PORT}"
   echo "日志文件：$LOG_FILE"
-  nohup "$py" "${args[@]}" >> "$LOG_FILE" 2>&1 &
-  pid=$!
+  # 必须 start_new_session=True 起子进程：只靠 nohup + & 时，WebUI 仍留在调用方
+  # shell 的会话/进程组里。从 Agent 会话（或其 Bash 工具）里重启时，命令一返回
+  # 整个进程组就被回收 —— 表现为"启动成功：PID=xxxx"，随后进程凭空消失、
+  # 5001 不再监听、日志停在最后一条请求上（没有任何 traceback）。
+  pid="$("$py" - "$py" "$LOG_FILE" "${args[@]}" <<'PY'
+import subprocess, sys
+
+python, log_file, *args = sys.argv[1:]
+with open(log_file, "ab") as fh:
+    proc = subprocess.Popen(
+        [python, *args],
+        stdout=fh, stderr=fh, stdin=subprocess.DEVNULL,
+        start_new_session=True, close_fds=True,
+    )
+print(proc.pid)
+PY
+)"
   echo "$pid" > "$PID_FILE"
 
   sleep 1

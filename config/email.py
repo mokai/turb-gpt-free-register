@@ -24,6 +24,7 @@ USE_EMAIL_SERVICE = False
 #   "mailnest"          — MailNest/迈巢临时邮箱 API（运行时购买邮箱并自动收码）
 #   "cloudmail"         — CloudMail/Cloud Mail API（自动从平台获取域名并随机生成邮箱）
 #   "remail"            — Remail 开放 API（按项目下单并自动收取验证码）
+#   "icloud_hme"        — iCloud HME 聚合平台（按项目预留 @icloud.com 别名并自动收码）
 EMAIL_SOURCE = "outlook,generic_api,mailnest"
 
 
@@ -201,5 +202,40 @@ REMAIL_REQUEST_TIMEOUT = 20
 # 已注册成功的邮箱、以及已在 OpenAI 侧消耗（创建接口已通过/被停用）的邮箱始终不入池。
 REMAIL_RECYCLE_FAILED_EMAIL = True
 
+
+# ============================================================
+# iCloud HME 邮箱池：icloud-hme 聚合平台（Apple「隐藏我的邮箱」）
+# ============================================================
+#
+# 与其它来源的模型差异：平台自己维护 HME 别名池，并按 **项目（project）**
+# 维度记录占用情况。所以本地不保存池记录——
+#     取邮箱 = 让平台预留一个别名（原子操作，并发不会重复）
+#     回收   = 让平台把该项目的占用标记释放掉（幂等）
+# 由此，别名的「失败回收」不依赖本地进程上下文，重启后仍可正常释放。
+
+# 平台服务地址，默认本机 5050 端口。误填 /api/v1、/api 或 /docs 时
+# 客户端会自动回退到域名根。
+ICLOUD_HME_API_BASE = "http://127.0.0.1:5050"
+
+# 在 icloud-hme「API Key」页创建的 hme_ 开头 API Key；明文只显示一次，
+# 保存在 .env。选择 icloud_hme 来源时必填。
+ICLOUD_HME_API_KEY = env_str("ICLOUD_HME_API_KEY", "")
+
+# 项目 code。邮箱占用与释放按项目独立记录，因此这个 code 必须已经
+# 在 icloud-hme 侧创建（建议发件人匹配 openai.com，取码函数用平台默认值）。
+ICLOUD_HME_PROJECT_CODE = "chatgpt"
+
+# 平台单次 HTTP 请求超时（秒）。
+ICLOUD_HME_REQUEST_TIMEOUT = 20
+
+# 注册失败且邮箱还没被 OpenAI 消耗时，是否调用平台 release 接口把别名放回
+# 该项目可用池：
+#   True  = 放回（默认）。available/next 在领取那一刻就完成了预留，不释放的话
+#           该别名会一直停留在 used 状态，被后续任务永久跳过；
+#   False = 只清理本地取件上下文，不调用平台接口。
+# 已注册成功的邮箱（本地已有账号）始终不释放。
+ICLOUD_HME_RELEASE_ON_FAILED = True
+
+
 # ---- .env overrides for WebUI editable fields ----
-apply_env_overrides(globals(), {'USE_EMAIL_SERVICE': 'bool', 'OTP_MAX_WAIT': 'int', 'OTP_POLL_INTERVAL': 'int', 'MANUAL_OTP_FALLBACK': 'bool', 'MANUAL_OTP_TIMEOUT': 'int', 'EMAIL_SOURCE': 'str', 'IMAP_MAILBOX': 'str', 'EMAIL_DOMAIN': 'str', 'QQ_EMAIL': 'str', 'QQ_IMAP_PASSWORD': 'str', 'GPTMAIL_API_KEY': 'str', 'OUTLOOK_FETCH_MODE': 'str', 'MAIL_NEST_API_KEY': 'str', 'MAIL_NEST_PROJECT_CODE': 'str', 'CLOUDFLARE_API_BASE': 'str', 'CLOUDFLARE_API_KEY': 'str', 'CLOUDFLARE_AUTH_MODE': 'str', 'CLOUDFLARE_CUSTOM_AUTH': 'str', 'CLOUDFLARE_PATH_DOMAINS': 'str', 'CLOUDFLARE_PATH_ACCOUNTS': 'str', 'CLOUDFLARE_PATH_TOKEN': 'str', 'CLOUDFLARE_PATH_MESSAGES': 'str', 'CLOUDFLARE_DEFAULT_DOMAINS': 'list_str_multiline', 'CLOUDFLARE_REQUEST_TIMEOUT': 'int', 'CLOUDFLARE_NAME_LENGTH': 'int', 'CLOUDMAIL_API_BASE': 'str', 'CLOUDMAIL_ADMIN_EMAIL': 'str', 'CLOUDMAIL_PASSWORD': 'str', 'CLOUDMAIL_TOKEN_PATH': 'str', 'CLOUDMAIL_AUTH_TOKEN': 'str', 'CLOUDMAIL_DOMAINS': 'list_str_multiline', 'CLOUDMAIL_AUTO_ADD_USER': 'bool', 'CLOUDMAIL_RANDOM_LOCAL_LENGTH': 'int', 'REMAIL_API_BASE': 'str', 'REMAIL_API_KEY': 'str', 'REMAIL_PROJECT_ID': 'int', 'REMAIL_EMAIL_SUFFIX': 'str', 'REMAIL_SERVICE_MODE': 'str', 'REMAIL_SUPPLY_POLICY': 'str', 'REMAIL_ORDER_WAIT_SECONDS': 'int', 'REMAIL_REQUEST_TIMEOUT': 'int', 'REMAIL_RECYCLE_FAILED_EMAIL': 'bool', 'OTP_SETTLE_SECONDS': 'int', 'GENERIC_API_PROXY': 'str'})
+apply_env_overrides(globals(), {'USE_EMAIL_SERVICE': 'bool', 'OTP_MAX_WAIT': 'int', 'OTP_POLL_INTERVAL': 'int', 'MANUAL_OTP_FALLBACK': 'bool', 'MANUAL_OTP_TIMEOUT': 'int', 'EMAIL_SOURCE': 'str', 'IMAP_MAILBOX': 'str', 'EMAIL_DOMAIN': 'str', 'QQ_EMAIL': 'str', 'QQ_IMAP_PASSWORD': 'str', 'GPTMAIL_API_KEY': 'str', 'OUTLOOK_FETCH_MODE': 'str', 'MAIL_NEST_API_KEY': 'str', 'MAIL_NEST_PROJECT_CODE': 'str', 'CLOUDFLARE_API_BASE': 'str', 'CLOUDFLARE_API_KEY': 'str', 'CLOUDFLARE_AUTH_MODE': 'str', 'CLOUDFLARE_CUSTOM_AUTH': 'str', 'CLOUDFLARE_PATH_DOMAINS': 'str', 'CLOUDFLARE_PATH_ACCOUNTS': 'str', 'CLOUDFLARE_PATH_TOKEN': 'str', 'CLOUDFLARE_PATH_MESSAGES': 'str', 'CLOUDFLARE_DEFAULT_DOMAINS': 'list_str_multiline', 'CLOUDFLARE_REQUEST_TIMEOUT': 'int', 'CLOUDFLARE_NAME_LENGTH': 'int', 'CLOUDMAIL_API_BASE': 'str', 'CLOUDMAIL_ADMIN_EMAIL': 'str', 'CLOUDMAIL_PASSWORD': 'str', 'CLOUDMAIL_TOKEN_PATH': 'str', 'CLOUDMAIL_AUTH_TOKEN': 'str', 'CLOUDMAIL_DOMAINS': 'list_str_multiline', 'CLOUDMAIL_AUTO_ADD_USER': 'bool', 'CLOUDMAIL_RANDOM_LOCAL_LENGTH': 'int', 'REMAIL_API_BASE': 'str', 'REMAIL_API_KEY': 'str', 'REMAIL_PROJECT_ID': 'int', 'REMAIL_EMAIL_SUFFIX': 'str', 'REMAIL_SERVICE_MODE': 'str', 'REMAIL_SUPPLY_POLICY': 'str', 'REMAIL_ORDER_WAIT_SECONDS': 'int', 'REMAIL_REQUEST_TIMEOUT': 'int', 'REMAIL_RECYCLE_FAILED_EMAIL': 'bool', 'ICLOUD_HME_API_BASE': 'str', 'ICLOUD_HME_API_KEY': 'str', 'ICLOUD_HME_PROJECT_CODE': 'str', 'ICLOUD_HME_REQUEST_TIMEOUT': 'int', 'ICLOUD_HME_RELEASE_ON_FAILED': 'bool', 'OTP_SETTLE_SECONDS': 'int', 'GENERIC_API_PROXY': 'str'})

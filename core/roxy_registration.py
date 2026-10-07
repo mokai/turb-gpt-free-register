@@ -23,6 +23,13 @@ from core.roxybrowser_client import RoxyBrowserClient, RoxyOpenResult
 
 logger = logging.getLogger(__name__)
 
+# Cloudflare 风控页（托管挑战 / Turnstile）的识别 + 人工介入通道。
+# 模块缺失时必须能降级：用 try 绑定 + 各处 None 兜底，风控提醒绝不阻断注册主流程。
+try:  # pragma: no cover - 可选模块
+    from core import cf_challenge as _cf_challenge
+except Exception:  # pragma: no cover
+    _cf_challenge = None
+
 # 共享页面操作函数（Roxy / Cloak / 比特 三种浏览器驱动复用本模块）默认按 Roxy 的
 # 超时配置等待。其他驱动启动前可以 set 这个 ContextVar 覆盖默认值，让共享函数按
 # 自己的超时配置工作（例如比特浏览器用 BIT_SELENIUM_TIMEOUT）。
@@ -71,6 +78,58 @@ def _log_prefix(driver=None) -> str:
     except Exception:
         pass
     return "[Roxy注册]"
+
+
+def _cf_guard(driver, label: str = "") -> bool:
+    """页面疑似被 Cloudflare 风控接管时，先静默等自动放行，仍卡住再请用户手动处理。
+
+    - 返回 True：确实检测到风控，且（自动放行或用户处理完）页面已恢复，调用方可以继续/重试；
+    - 返回 False：当前页面没有风控（正常路径，只多一次极轻量的 JS 检测）；
+    - 用户点「取消本次任务」抛 ManualInterventionCancelled、等待超时抛 ManualInterventionTimeout，
+      两者都原样抛出，交给任务层记为失败（错误信息里写明是风控）。
+    """
+    if _cf_challenge is None:
+        return False
+    return bool(_cf_challenge.maybe_handle(driver, label=label))
+
+
+def _current_job_id() -> int | None:
+    """当前任务号（任务跑在线程池里，注册服务把它放在线程上下文）。"""
+    try:
+        from core import registration_service as svc
+
+        job_id = getattr(svc._THREAD_CTX, "job_id", None)
+        return int(job_id) if job_id else None
+    except Exception:
+        return None
+
+
+def set_cf_context(*, email: str | None = None, job_id: int | None = None, task: str = "注册") -> None:
+    """登记当前任务上下文，让风控弹框能显示"哪个任务 / 哪个邮箱"。"""
+    if _cf_challenge is None:
+        return
+    try:
+        _cf_challenge.set_context(email=email, job_id=job_id or _current_job_id(), task=task)
+    except Exception:
+        logger.debug("设置 Cloudflare 风控上下文失败", exc_info=True)
+
+
+def update_cf_context(**fields) -> None:
+    if _cf_challenge is None:
+        return
+    try:
+        _cf_challenge.update_context(**fields)
+    except Exception:
+        logger.debug("更新 Cloudflare 风控上下文失败", exc_info=True)
+
+
+def clear_cf_context() -> None:
+    if _cf_challenge is None:
+        return
+    try:
+        _cf_challenge.clear_context()
+    except Exception:
+        logger.debug("清理 Cloudflare 风控上下文失败", exc_info=True)
 
 
 def _build_driver(opened: RoxyOpenResult, *, driver_label: str = ""):
@@ -193,6 +252,9 @@ def _safe_get(driver, url: str, *, timeout: int = 45, attempts: int = 2, accept_
             except Exception:
                 pass
             driver.get(url)
+            # get 一返回就检查：CF 挑战页在 eager 策略下会"立刻加载完成"，这里必须先接住它
+            # （先静默等自动放行、再请用户处理），否则上层会把挑战页当成"元素没渲染"去 refresh。
+            _cf_guard(driver, "导航 %s" % url)
             return
         except TimeoutException as exc:
             last_exc = exc
@@ -204,6 +266,9 @@ def _safe_get(driver, url: str, *, timeout: int = 45, attempts: int = 2, accept_
                 driver.execute_script("window.stop();")
             except Exception:
                 pass
+            # 页面加载超时最常见的原因就是被 CF 挑战页占住（挑战脚本长轮询不结束）。
+            # 先过一遍风控守卫：放行后 DOM 就是真实登录页，下面的判定会正常通过。
+            _cf_guard(driver, "导航超时 %s" % url)
             time.sleep(1.0)
             try:
                 current = str(driver.current_url or "").lower()
@@ -427,6 +492,11 @@ def _refresh_after_missing_page_element(driver, step: str, retry_index: int) -> 
     max_retries = _MISSING_PAGE_ELEMENT_REFRESH_RETRIES
     if retry_index >= max_retries:
         return False
+    # 元素找不到的头号原因是页面被 CF 挑战页占住（挑战约 40s 后才自动放行）。
+    # 此时 `driver.refresh()` 会把挑战重置、越刷越久，所以先过风控守卫：
+    # 命中就等它放行，然后直接让调用方重试查找，不刷新。
+    if _cf_guard(driver, "%s 元素缺失" % step):
+        return True
     try:
         current_url = str(getattr(driver, "current_url", "") or "")
         logger.warning(
@@ -446,7 +516,7 @@ def _refresh_after_missing_page_element(driver, step: str, retry_index: int) -> 
         return False
 
 
-def _find_any(driver, selectors: list[str], timeout: int | None = None):
+def _find_any(driver, selectors: list[str], timeout: int | None = None, _cf_retry: bool = False):
     from selenium.webdriver.common.by import By
 
     end = time.time() + (timeout or _selenium_timeout(driver))
@@ -462,6 +532,9 @@ def _find_any(driver, selectors: list[str], timeout: int | None = None):
             except Exception as exc:
                 last = exc
         time.sleep(0.4)
+    # 等不到元素时先确认是不是被 CF 挑战页挡住；风控解除后原地重试一次。
+    if not _cf_retry and _cf_guard(driver, "元素等待失败 %s" % (selectors[0] if selectors else "")):
+        return _find_any(driver, selectors, timeout, _cf_retry=True)
     raise RuntimeError(f"找不到页面元素: {selectors}; last={last}")
 
 
@@ -1064,7 +1137,7 @@ def _is_email_login_page_still_present(driver) -> bool:
     return bool(state.get("inputs"))
 
 
-def _wait_email_submit_next_state(driver, email: str, timeout: int = 18) -> str:
+def _wait_email_submit_next_state(driver, email: str, timeout: int = 18, _cf_retry: bool = False) -> str:
     """邮箱提交后等待进入 password / otp / logged_in；仍停留邮箱页则返回 email_page。
 
     Cloak/Playwright 路径里，点击 submit 后页面经常先发生一次 SPA 导航：
@@ -1120,6 +1193,10 @@ def _wait_email_submit_next_state(driver, email: str, timeout: int = 18) -> str:
             # 仍是当前邮箱页，继续短等。
         time.sleep(0.8)
     logger.info("%s 邮箱提交后等待下一步超时，最后邮箱页状态=%s", _log_prefix(driver), last)
+    # 提交后停在 /api/auth/error 且 inputs 为空，最常见的原因就是**提交这一步本身被 CF 挑战**。
+    if not _cf_retry and _cf_guard(driver, "邮箱提交后等待下一步"):
+        logger.info("%s 风控已处理完成，重新观察邮箱提交后的页面状态", _log_prefix(driver))
+        return _wait_email_submit_next_state(driver, email, timeout, _cf_retry=True)
     state_name = "email_page" if _is_email_login_page_still_present(driver) else "unknown"
     return state_name
 
@@ -2140,7 +2217,7 @@ def _accept_profile_consents(driver) -> int:
         return 0
 
 
-def _complete_profile_page(driver, name: str, birthday: str, timeout: int = 45) -> bool:
+def _complete_profile_page(driver, name: str, birthday: str, timeout: int = 45, _cf_retry: bool = False) -> bool:
     """等待并完成姓名/生日页；若已经登录成功则返回 False，不把它当失败。"""
     end = time.time() + timeout
     y, m, d = birthday.split('-')
@@ -2199,6 +2276,9 @@ def _complete_profile_page(driver, name: str, birthday: str, timeout: int = 45) 
                 return True
             time.sleep(1)
         logger.warning('%s 找不到可点击的资料页提交按钮 snapshot=%s', _log_prefix(driver), _page_snapshot(driver))
+    if not _cf_retry and _cf_guard(driver, "资料页等待"):
+        logger.info('%s 风控已处理完成，重新等待资料页', _log_prefix(driver))
+        return _complete_profile_page(driver, name, birthday, timeout, _cf_retry=True)
     raise RuntimeError(f'等待/填写资料页超时，最后页面：{last_snapshot}')
 
 
@@ -2323,6 +2403,8 @@ def _fetch_chatgpt_session(driver, timeout: int = 90, auto_jump_wait: int = 15) 
                 continue
 
         if 'chatgpt.com' in current:
+            # session 读不到也可能是 chatgpt.com 被 Cloudflare 接管（风控页里没有 accessToken）。
+            _cf_guard(driver, "读取 ChatGPT session")
             try:
                 data = _read_chatgpt_session_once(driver)
                 if data:
@@ -2420,6 +2502,8 @@ def run_roxy_registration(
             driver.set_script_timeout(12)
         except Exception:
             pass
+        # 登记风控人工介入上下文：弹框要能显示"哪个任务 / 哪个邮箱"。
+        set_cf_context(email=email, task="Roxy 注册")
         logger.info("[Roxy注册] 开始：%s，profile=%s", email, opened.profile_id)
 
         otp_after_ts = time.time()
@@ -2444,6 +2528,7 @@ def run_roxy_registration(
             nonlocal email
             _check_manual_stop()
             email = acquire_email_after_input(email)
+            update_cf_context(email=email)
             if on_email_acquired:
                 on_email_acquired(email)
             return email
@@ -2668,6 +2753,7 @@ def run_roxy_registration(
             "error": f"{type(exc).__name__}: {str(exc)[:300]}",
         }
     finally:
+        clear_cf_context()
         if asset_cache is not None:
             try:
                 asset_cache.stop()

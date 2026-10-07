@@ -99,6 +99,69 @@ class AccountLivenessTests(unittest.TestCase):
         self.assertFalse(_DummyBrowserSession.created[0].session.closed)
         self.assertIsNone(_DummyBrowserSession.created[0].received_proxy)
 
+    def test_cf_challenge_response_is_detected_by_header_and_body(self):
+        mitigated = SimpleNamespace(
+            headers={"cf-mitigated": "challenge", "server": "cloudflare"},
+            text="<html><title>Just a moment...</title></html>",
+        )
+        self.assertTrue(liveness._is_cf_challenge_response(mitigated))
+
+        body_only = SimpleNamespace(
+            headers={"server": "cloudflare"},
+            text="<html><script>window._cf_chl_opt={};</script></html>",
+        )
+        self.assertTrue(liveness._is_cf_challenge_response(body_only))
+
+        business_403 = SimpleNamespace(
+            headers={"server": "cloudflare"},
+            text='{"detail":"account deactivated"}',
+        )
+        self.assertFalse(liveness._is_cf_challenge_response(business_403))
+        self.assertFalse(liveness._is_cf_challenge_response(None))
+
+    def test_warm_login_keeps_going_when_document_is_cf_challenged(self):
+        """登录页 document 只是 best-effort 预热，被 CF 挑战时不能硬失败。"""
+        session = MagicMock()
+        challenged = MagicMock()
+        challenged.status_code = 403
+        challenged.headers = {"cf-mitigated": "challenge", "server": "cloudflare"}
+        challenged.text = "<html><title>Just a moment...</title></html>"
+        session.get.return_value = challenged
+
+        with patch("core.chatgpt_bootstrap.anonymous_bootstrap") as bootstrap, \
+             patch.object(liveness, "get_providers") as providers, \
+             patch.object(liveness, "probe_auth_session") as probe:
+            liveness._warm_login_fingerprint_context(session)
+
+        challenged.raise_for_status.assert_not_called()
+        session.reset_circuit_breaker.assert_called()
+        bootstrap.assert_called_once_with(session, strict=False)
+        providers.assert_called_once_with(session)
+        probe.assert_called_once_with(session)
+
+    def test_preflight_stops_in_place_retry_when_cf_challenges(self):
+        """CF 主动挑战绑定出口/指纹，同会话原地重试必然复现，应立即换路。"""
+        created = []
+
+        def factory(proxy=None, **kwargs):
+            session = _DummyBrowserSession(proxy=proxy, **kwargs)
+            session.cf_challenge_hits = 0
+            created.append(session)
+            return session
+
+        with patch.object(liveness, "BrowserSession", side_effect=factory), \
+             patch.object(liveness, "_warm_login_fingerprint_context",
+                          side_effect=RuntimeError("Recent Login 预热失败：status=403")), \
+             patch.object(liveness, "_report_cf_challenged_proxy") as report, \
+             patch.object(liveness.time, "sleep") as sleep, \
+             patch.object(_DummyBrowserSession, "cf_challenged_after", lambda self, n: True, create=True):
+            with self.assertRaises(RuntimeError):
+                liveness._network_preflight_with_retry("user@example.com", "", max_attempts=4)
+
+        self.assertEqual(len(created), 1)
+        report.assert_called_once_with(created[0])
+        sleep.assert_not_called()
+
     def test_callback_403_retries_in_same_session_before_fetching_token(self):
         session = _DummyBrowserSession(proxy="proxy")
         with patch.object(

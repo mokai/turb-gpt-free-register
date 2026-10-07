@@ -164,6 +164,44 @@ class EmailChangeTests(unittest.TestCase):
         self.assertIs(login.call_args.args[0], direct_session)
         self.assertTrue(any("直连兜底" in call.args[1] for call in append_log.call_args_list))
 
+    def test_recent_login_rotates_generic_pool_exits_on_persistent_403(self):
+        """未配置换绑专用池时，CF/403 也要能换新出口，而不是只打「当前出口 + 直连」。"""
+        session = MagicMock()
+        session.proxy = "http://current:1"
+        session.proxy_target = "http://current:1"
+        called_routes = []
+
+        def preflight(_email, proxy, **_kwargs):
+            called_routes.append(proxy)
+            raise RuntimeError(
+                "Recent Login 预热失败：status=403 url=https://chatgpt.com/auth/login "
+                "cf-mitigated=challenge error=HTTPError: HTTP Error 403: "
+            )
+
+        with patch("core.account_liveness._network_preflight_with_retry", side_effect=preflight), \
+             patch.object(email_change_service, "_change_proxy_pool", return_value=[]), \
+             patch.object(
+                 email_change_service._proxy_cfg, "pick_proxy",
+                 # 多给几条：换路上限由 PROXY_MAX_ROUTE_ATTEMPTS 决定（默认已调到 6），
+                 # 这里只要求「能持续换到新出口」，不锁死具体条数。
+                 side_effect=[f"http://pool-{i}:{i}" for i in range(1, 13)],
+             ), \
+             patch.object(email_change_service, "_append_log"):
+            with self.assertRaises(RuntimeError):
+                email_change_service._refresh_recent_login(
+                    session,
+                    account_id=21,
+                    email="old@example.com",
+                    email_source="imap",
+                )
+
+        self.assertEqual(called_routes[0], "http://current:1")
+        self.assertIn("", called_routes)
+        self.assertTrue(
+            any(str(route).startswith("http://pool-") for route in called_routes),
+            called_routes,
+        )
+
     def test_post_change_live_check_reuses_current_session(self):
         session = MagicMock()
         session.proxy = "socks5://127.0.0.1:7897"

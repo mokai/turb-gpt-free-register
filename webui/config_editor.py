@@ -413,7 +413,7 @@ EDITABLE_FIELDS = [
     },
     {
         "key": "EMAIL_SOURCE", "file": "email.py", "type": "str", "group": "邮箱 / OTP",
-        "label": "邮箱来源", "help": "可填单个或多个，逗号分隔并按顺序兜底：outlook,generic_api,imap,cloudflare_domain,cloudflare,gptmail,mailnest,cloudmail,remail",
+        "label": "邮箱来源", "help": "可填单个或多个，逗号分隔并按顺序兜底：outlook,generic_api,imap,cloudflare_domain,cloudflare,gptmail,mailnest,cloudmail,remail,icloud_hme",
     },
     {
         "key": "IMAP_MAILBOX", "file": "email.py", "type": "str", "group": "邮箱 / OTP",
@@ -572,6 +572,29 @@ EDITABLE_FIELDS = [
         "label": "Remail失败邮箱回收",
         "help": "注册失败且邮箱未被消耗时，把邮箱和取件地址写回「通用 API 邮箱池」并标为可用，下次注册可直接复用（默认开启）",
     },
+    {
+        "key": "ICLOUD_HME_API_BASE", "file": "email.py", "type": "str", "group": "邮箱 / OTP",
+        "label": "iCloud HME 服务地址", "help": "icloud-hme 平台地址，默认 http://127.0.0.1:5050；误填 /api/v1 或 /docs 会自动回退",
+    },
+    {
+        "key": "ICLOUD_HME_API_KEY", "file": "email.py", "type": "str", "group": "邮箱 / OTP",
+        "label": "iCloud HME API Key",
+        "help": "在 icloud-hme 左侧「API Key」页创建的 hme_ 开头 Key（明文只显示一次）；选择 icloud_hme 来源时必填，保存在 .env",
+        "storage": "env", "secret": True,
+    },
+    {
+        "key": "ICLOUD_HME_PROJECT_CODE", "file": "email.py", "type": "str", "group": "邮箱 / OTP",
+        "label": "iCloud HME 项目 code", "help": "邮箱的占用与释放按项目独立记录；该 code 需先在 icloud-hme 侧创建，默认 chatgpt",
+    },
+    {
+        "key": "ICLOUD_HME_REQUEST_TIMEOUT", "file": "email.py", "type": "int", "group": "邮箱 / OTP",
+        "label": "iCloud HME 请求超时(秒)", "help": "平台单次 HTTP 请求超时，默认 20 秒",
+    },
+    {
+        "key": "ICLOUD_HME_RELEASE_ON_FAILED", "file": "email.py", "type": "bool", "group": "邮箱 / OTP",
+        "label": "iCloud HME失败邮箱回收",
+        "help": "注册失败且邮箱未被消耗时，调用平台 release 接口把别名放回本项目可用池（默认开启）；关闭后别名会一直停留在已占用状态",
+    },
     # ---- 浏览器地区画像 ----
     {
         "key": "BROWSER_LOCALE_PROFILE", "file": "browser.py", "type": "str", "group": "浏览器画像",
@@ -613,6 +636,18 @@ EDITABLE_FIELDS = [
     {
         "key": "BROWSER_JS_COVERAGE_MAX_ENTRIES", "file": "browser.py", "type": "int", "group": "浏览器画像",
         "label": "本地浏览器 JS 覆盖率最多条数", "help": "仅 Roxy/Cloak 生效；日志最多输出的已执行函数数，同时限制保存的脚本摘要数量，默认 1000，最大 10000",
+    },
+    {
+        "key": "CF_CHALLENGE_MANUAL_WAIT", "file": "browser.py", "type": "bool", "group": "浏览器画像",
+        "label": "Cloudflare 风控页人工介入", "help": "页面被 CF 挑战页/Turnstile 接管时：先静默等待自动放行，仍不放行则弹框请你在浏览器里手动处理；关闭后遇到风控页直接失败",
+    },
+    {
+        "key": "CF_CHALLENGE_GRACE_SECONDS", "file": "browser.py", "type": "int", "group": "浏览器画像",
+        "label": "CF 静默等待放行秒数", "help": "先不打扰用户、静默轮询等待挑战自行放行的秒数。实测 chatgpt.com 托管挑战约 42 秒放行，默认 50；设 0 表示检测到就立刻弹框",
+    },
+    {
+        "key": "CF_CHALLENGE_POLL_INTERVAL", "file": "browser.py", "type": "int", "group": "浏览器画像",
+        "label": "CF 风控复检间隔(秒)", "help": "弹框后每隔多少秒复检页面是否恢复正常，恢复即自动继续流程，默认 5",
     },
 
     # ---- 代理池 ----

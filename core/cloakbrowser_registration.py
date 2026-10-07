@@ -22,6 +22,7 @@ from core.roxy_registration import (  # noqa: F401
     _maybe_accept, _submit_email_and_wait_next, _fill_password_page_if_present,
     _clear_otp_inputs, _type_otp, _click_continue, _wait_after_email_otp_submit,
     _click_resend_email_otp, _complete_profile_page, _fetch_chatgpt_session, _check_manual_stop,
+    clear_cf_context, set_cf_context, update_cf_context,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,8 @@ def run_cloak_registration(
         if traffic_tracker is not None:
             traffic_tracker.attach_data_saver(data_saver)
         data_saver.install_playwright(driver.context)
+        # 登记风控人工介入上下文：弹框要能显示"哪个任务 / 哪个邮箱"。
+        set_cf_context(email=email, task="Cloak 注册")
         logger.info("[Cloak注册] 开始：%s，profile=%s", email, opened.profile_id)
 
         otp_after_ts = time.time()
@@ -72,6 +75,7 @@ def run_cloak_registration(
             nonlocal email
             _check_manual_stop()
             email = acquire_email_after_input(email)
+            update_cf_context(email=email)
             if on_email_acquired:
                 on_email_acquired(email)
             return email
@@ -224,6 +228,7 @@ def run_cloak_registration(
             "error": f"{type(exc).__name__}: {str(exc)[:300]}",
         }
     finally:
+        clear_cf_context()
         if traffic_tracker is not None:
             try:
                 traffic_tracker.stop()

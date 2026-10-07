@@ -126,6 +126,17 @@ BROWSER_TRAFFIC_DETAIL_MAX_ENTRIES: int = 2000
 # 或源码；Browser Use/Skyvern 云端浏览器不启用该监听；默认关闭，避免给正常注册增加额外开销。
 BROWSER_JS_COVERAGE_LOG: bool = False
 BROWSER_JS_COVERAGE_MAX_ENTRIES: int = 1000
+
+# ---------- Cloudflare 风控页（浏览器侧） ----------
+# 页面被 Cloudflare 托管挑战 / Turnstile 接管时（"Just a moment…"、人机验证复选框）
+# 的处理策略。实测 chatgpt.com 的托管挑战是**非交互**的、约 42 秒会自行放行，
+# 所以先静默等待自动放行，只有超过 CF_CHALLENGE_GRACE_SECONDS 仍未放行才弹框请用户
+# 手动处理；弹框后按 CF_CHALLENGE_POLL_INTERVAL 秒复检页面，恢复即自动继续流程。
+# 等待上限与「人工介入超时时间」config/email.py: MANUAL_OTP_TIMEOUT 共用，默认 600 秒。
+# 注意：挑战页标题是本地化的（印地语/日语/中文都可能），检测一律用 DOM 特征而非标题文案。
+CF_CHALLENGE_MANUAL_WAIT: bool = True
+CF_CHALLENGE_GRACE_SECONDS: int = 50
+CF_CHALLENGE_POLL_INTERVAL: int = 5
 COUNTRY_LOCALE_PROFILE_MAP = {
     "JP": "jp", "CN": "cn", "HK": "hk", "TW": "tw", "US": "us", "CA": "us",
     "SG": "sg", "GB": "gb", "AU": "gb", "DE": "de", "FR": "fr", "NL": "nl",
@@ -403,4 +414,4 @@ def validate_browser_profile(profile: dict) -> list[str]:
     return issues
 
 # ---- .env overrides for WebUI editable fields ----
-apply_env_overrides(globals(), {'BROWSER_LOCALE_PROFILE': 'str', 'AUTO_BROWSER_LOCALE_FROM_IP': 'bool', 'IP_GEO_TIMEOUT': 'float', 'REJECT_CLOUD_PROXY': 'bool', 'BROWSER_DATA_SAVER_MODE': 'bool', 'BROWSER_DATA_SAVER_BLOCKED_RESOURCE_TYPES': 'list_str_multiline', 'BROWSER_DATA_SAVER_BLOCKED_URL_PATTERNS': 'list_str_multiline', 'BROWSER_TRAFFIC_DETAIL_LOG': 'bool', 'BROWSER_TRAFFIC_DETAIL_MAX_ENTRIES': 'int', 'BROWSER_JS_COVERAGE_LOG': 'bool', 'BROWSER_JS_COVERAGE_MAX_ENTRIES': 'int', 'BROWSER_DATA_SAVER_DEEP_MODE': 'bool'})
+apply_env_overrides(globals(), {'BROWSER_LOCALE_PROFILE': 'str', 'AUTO_BROWSER_LOCALE_FROM_IP': 'bool', 'IP_GEO_TIMEOUT': 'float', 'REJECT_CLOUD_PROXY': 'bool', 'BROWSER_DATA_SAVER_MODE': 'bool', 'BROWSER_DATA_SAVER_BLOCKED_RESOURCE_TYPES': 'list_str_multiline', 'BROWSER_DATA_SAVER_BLOCKED_URL_PATTERNS': 'list_str_multiline', 'BROWSER_TRAFFIC_DETAIL_LOG': 'bool', 'BROWSER_TRAFFIC_DETAIL_MAX_ENTRIES': 'int', 'BROWSER_JS_COVERAGE_LOG': 'bool', 'BROWSER_JS_COVERAGE_MAX_ENTRIES': 'int', 'BROWSER_DATA_SAVER_DEEP_MODE': 'bool', 'CF_CHALLENGE_MANUAL_WAIT': 'bool', 'CF_CHALLENGE_GRACE_SECONDS': 'int', 'CF_CHALLENGE_POLL_INTERVAL': 'int'})

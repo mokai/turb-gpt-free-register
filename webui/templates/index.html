@@ -2713,6 +2713,7 @@
           <div class="acc-v2-date-select" id="planGroupFilterWrapV2">
             <button type="button" class="acc-v2-date-select-btn" id="btnPlanGroupFilterV2" title="按「代理分组-套餐活动」筛选账号；可多选，例如 JP-free、PH-1月半价">🏷 套餐分组</button>
             <div class="acc-v2-date-select-menu pgf-menu" id="planGroupFilterMenuV2"></div>
+          </div>
           <label class="acc-v2-inline" title="按账号状态筛选账号">
             <select id="codexStatusFilterV2">
               <option value="">全部状态</option>
@@ -3094,8 +3095,9 @@
         <option value="outlook">Outlook 邮箱池</option><option value="generic_api">通用 API</option><option value="imap">通用 IMAP</option>
         <option value="cloudflare_domain">Cloudflare 域名邮箱</option><option value="cloudflare">Cloudflare 临时邮箱</option>
         <option value="gptmail">GPTMail</option><option value="mailnest">MailNest</option><option value="cloudmail">CloudMail</option><option value="remail">Remail</option>
+        <option value="icloud_hme">iCloud HME</option>
       </select></label>
-      <div class="banner warn">换绑成功后当前 access_token 会失效并被清空，系统会立即使用新邮箱自动查活并刷新 AT。原邮箱会保留在账号记录中，并按换绑前的来源放回邮箱池（Outlook / 通用 API / 通用 IMAP / 域名邮箱复位为可用；临时邮箱来源不进本地池）。</div>
+      <div class="banner warn">换绑成功后当前 access_token 会失效并被清空，系统会立即使用新邮箱自动查活并刷新 AT。原邮箱会保留在账号记录中，并按换绑前的来源放回邮箱池（Outlook / 通用 API / 通用 IMAP / 域名邮箱复位为可用；iCloud HME 别名通知平台放回项目可用池；临时邮箱来源不进本地池）。</div>
     </div>
     <div class="outlook-import-foot"><button type="button" class="jobs-tb-btn" id="btnCancelEmailChangeV2">取消</button><button type="button" class="jobs-tb-btn jobs-tb-btn--primary" id="btnSubmitEmailChangeV2">开始换绑</button></div>
   </div>
@@ -3371,6 +3373,9 @@ function pagerJump(id, val) {
 }
 
 function _reloadPagedList(id) {
+  // 翻页 / 改「每页条数」后，选中的是上一页的行：必须清空，
+  // 否则「已选 N」和批量按钮会指向当前看不到的账号（与筛选变更时的处理保持一致）。
+  if (id === 'accounts') ACCOUNT_SELECTED.clear();
   ({ jobs: refreshJobs, accounts: loadAccounts, outlook: loadOutlook, codex: loadCodex })[id]?.();
 }
 function pagerGo(id, dir) {
@@ -4258,7 +4263,13 @@ async function loadAccounts() {
     ACCOUNTS = res.items || [];
     ACCOUNTS_TOTAL = Number(res.total || ACCOUNTS.length || 0);
     const totalPages = Math.max(1, Math.ceil(ACCOUNTS_TOTAL / p.size));
-    if (p.page > totalPages) { p.page = totalPages; accountsLoading = false; return loadAccounts(); }
+    if (p.page > totalPages) {
+      // 页码被裁到最后一页等同于翻页：选中的行已经不在了，一并清空。
+      p.page = totalPages;
+      ACCOUNT_SELECTED.clear();
+      accountsLoading = false;
+      return loadAccounts();
+    }
     renderAccounts();
   } catch(e) { showToast('加载账号失败: ' + e.message); }
   finally { accountsLoading = false; }
@@ -4465,6 +4476,7 @@ function _planGroupTagsCell(r) {
   }
   // 全部分组都失败：交给外层按账号整体状态渲染错误。
   return '';
+}
 function _promoPlanName(key, campaign) {
   const meta = (campaign && typeof campaign === 'object' && campaign.metadata && typeof campaign.metadata === 'object') ? campaign.metadata : {};
   const raw = String(meta.plan_name || key || '套餐').trim();
@@ -7093,6 +7105,7 @@ function emailConfigSectionForKey(key) {
   if (key.startsWith('MAIL_NEST_')) return ['MailNest', 'MailNest / 迈巢临时邮箱 API 配置'];
   if (key.startsWith('CLOUDMAIL_')) return ['CloudMail', 'CloudMail 域名随机邮箱、Token 和收信 API 配置'];
   if (key.startsWith('REMAIL_')) return ['Remail', 'Remail 开放 API、项目下单和取件配置'];
+  if (key.startsWith('ICLOUD_HME_')) return ['iCloud HME', 'iCloud HME 聚合平台：按项目预留 @icloud.com 别名、自动取码与失败回收'];
   if (key.startsWith('OUTLOOK_')) return ['Outlook 邮箱池', 'Outlook 邮箱池和取件模式配置'];
   if (key.startsWith('IMAP_')) return ['通用 IMAP', '通用 IMAP 邮箱池的收件目录配置'];
   if (key.startsWith('CLOUDFLARE_')) return ['Cloudflare 临时邮箱', 'Cloudflare Worker 临时邮箱 API、鉴权与路径配置'];
@@ -8608,7 +8621,7 @@ function renderConfigSectionV2(name, fields) {
       name,
       fields,
       emailConfigSectionForKey,
-      ['通用邮箱 / OTP', 'GPTMail', 'MailNest', 'CloudMail', 'Remail', 'Outlook 邮箱池', 'Cloudflare 临时邮箱', 'Cloudflare 域名邮箱', '其他邮箱配置'],
+      ['通用邮箱 / OTP', 'GPTMail', 'MailNest', 'CloudMail', 'Remail', 'iCloud HME', 'Outlook 邮箱池', 'Cloudflare 临时邮箱', 'Cloudflare 域名邮箱', '其他邮箱配置'],
       { get: () => CONFIG_EMAIL_ACTIVE_SECTION_V2, set: v => { CONFIG_EMAIL_ACTIVE_SECTION_V2 = v; } },
       'email-section-v2'
     );
@@ -8891,7 +8904,6 @@ function manualOtpNotifySupported() { return typeof Notification !== 'undefined'
 
 function updateManualOtpNotifyBtn() {
   const btn = $('#btnManualOtpNotify');
-  updateManualInterventionNotifyBtn();
   if (!btn) return;
   if (!manualOtpNotifySupported()) { btn.textContent = '浏览器不支持提醒'; btn.disabled = true; return; }
   if (Notification.permission === 'granted') { btn.textContent = '浏览器提醒已开启'; btn.disabled = true; }

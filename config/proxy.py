@@ -90,6 +90,61 @@ PLAN_CHECK_QUEUE_LIMIT = 500
 PLAN_CHECK_MIN_INTERVAL = 1.0
 PLAN_CHECK_JITTER = 0.8
 
+# 自适应代理池：记录失败出口并在冷却期内跳过。
+PROXY_ADAPTIVE_ROUTING = True
+PROXY_COOLDOWN_403_SECONDS = 900
+PROXY_COOLDOWN_429_SECONDS = 300
+PROXY_MAX_ROUTE_ATTEMPTS = 4
+
+_PROXY_HEALTH: dict[str, dict[str, float | int | str]] = {}
+_PROXY_HEALTH_LOCK = threading.Lock()
+
+
+def _proxy_key(value: str | None) -> str:
+    """统一代理标识，供健康状态与换路排除集合使用。"""
+    return str(value or "").strip()
+
+
+def report_proxy_result(
+    proxy: str | None,
+    *,
+    status: int | None = None,
+    ok: bool | None = None,
+    error: str = "",
+) -> None:
+    """记录代理请求结果，自适应路由据此暂时跳过失败出口。"""
+    key = _proxy_key(proxy)
+    if not key or not PROXY_ADAPTIVE_ROUTING:
+        return
+    now = time.time()
+    status = int(status or 0)
+    with _PROXY_HEALTH_LOCK:
+        item = _PROXY_HEALTH.setdefault(key, {"failures": 0, "cooldown_until": 0.0})
+        if ok is True or status in range(200, 400):
+            item["failures"] = 0
+            item["cooldown_until"] = 0.0
+            item["last_ok"] = now
+            return
+        if status == 403:
+            cooldown = max(0, int(PROXY_COOLDOWN_403_SECONDS))
+        elif status == 429:
+            cooldown = max(0, int(PROXY_COOLDOWN_429_SECONDS))
+        else:
+            cooldown = 60
+        item["failures"] = int(item.get("failures", 0) or 0) + 1
+        item["cooldown_until"] = now + cooldown
+        item["last_error"] = str(error or f"HTTP {status}" if status else error)[:300]
+
+
+def proxy_is_cooling_down(proxy: str | None) -> bool:
+    """Return whether adaptive routing currently skips this proxy."""
+    key = _proxy_key(proxy)
+    if not key or not PROXY_ADAPTIVE_ROUTING:
+        return False
+    with _PROXY_HEALTH_LOCK:
+        item = _PROXY_HEALTH.get(key) or {}
+        return float(item.get("cooldown_until", 0.0) or 0.0) > time.time()
+
 
 def _valid_port(value: str) -> bool:
     return value.isdigit() and 1 <= int(value) <= 65535
@@ -378,6 +433,10 @@ apply_env_overrides(globals(), {
     'PLAN_CHECK_MAX_ATTEMPTS': 'int',
     'PLAN_CHECK_RETRY_DELAY': 'float',
     'PLAN_CHECK_REGISTRATION_RECHECK_DELAY': 'float',
+    'PROXY_ADAPTIVE_ROUTING': 'bool',
+    'PROXY_COOLDOWN_403_SECONDS': 'int',
+    'PROXY_COOLDOWN_429_SECONDS': 'int',
+    'PROXY_MAX_ROUTE_ATTEMPTS': 'int',
     'PLAN_CHECK_WORKERS': 'int',
     'PLAN_CHECK_QUEUE_LIMIT': 'int',
     'PLAN_CHECK_MIN_INTERVAL': 'float',
