@@ -54,6 +54,75 @@ _SESSION_FINGERPRINT_KEYS = {
     "react_resources_key",
 }
 
+# Cloudflare 主动挑战页的正文特征。403 + cf-mitigated=challenge 或 CF 挑战页正文都说明
+# 出口 IP 信誉或 TLS 指纹不匹配（见 tools/test_cf_impersonate_matrix.py 实测结论），
+# 同一会话原地重试会稳定复现，必须换出口 / 重建指纹。
+_CF_CHALLENGE_BODY_MARKERS = (
+    "_cf_chl_opt",
+    "/cdn-cgi/challenge-platform",
+    "cf-chl-widget",
+    "challenge-form",
+    "just a moment",
+    "enable javascript and cookies to continue",
+    "checking your browser before accessing",
+)
+
+
+def _is_cf_challenge_response(response) -> bool:
+    """判断一个 HTTP 响应是否是 Cloudflare 挑战页（区别于真实业务 403）。"""
+    if response is None:
+        return False
+    try:
+        headers = getattr(response, "headers", None) or {}
+    except Exception:
+        headers = {}
+    try:
+        if str(headers.get("cf-mitigated") or "").strip().lower() == "challenge":
+            return True
+    except Exception:
+        pass
+    try:
+        server = str(headers.get("server") or "").strip().lower()
+    except Exception:
+        server = ""
+    if server != "cloudflare":
+        return False
+    try:
+        body = str(getattr(response, "text", "") or "")[:20000].lower()
+    except Exception:
+        return False
+    return any(marker in body for marker in _CF_CHALLENGE_BODY_MARKERS)
+
+
+def _is_cf_challenge_error(exc: BaseException) -> bool:
+    """异常链里是否带 Cloudflare 主动挑战。
+
+    熔断后抛出的是本地 ``RuntimeError``，此时没有 ``response``，只能靠错误文本里
+    附带过的 ``cf-mitigated=challenge`` 标记判断（见 :func:`_warm_login_fingerprint_context`）。
+    """
+    if _is_cf_challenge_response(getattr(exc, "response", None)):
+        return True
+    text = str(exc or "").lower()
+    return "cf-mitigated=challenge" in text or "cf-mitigated: challenge" in text
+
+
+def _report_cf_challenged_proxy(session) -> None:
+    """把被 CF 挑战的出口登记进自适应路由冷却，避免下一轮继续抽到同一个坏出口。"""
+    proxy = str(
+        getattr(session, "proxy", "") or getattr(session, "proxy_target", "") or ""
+    ).strip()
+    if not proxy:
+        return
+    try:
+        from config import proxy as proxy_cfg
+        proxy_cfg.report_proxy_result(
+            proxy,
+            status=403,
+            error="Cloudflare challenge (cf-mitigated=challenge)",
+        )
+    except Exception:
+        logger.debug("[查活] 上报 CF 挑战出口失败", exc_info=True)
+
 
 def _is_retryable_network_error(exc: BaseException) -> bool:
     if isinstance(exc, AccountUnusableError):
@@ -138,10 +207,22 @@ def _warm_login_fingerprint_context(session: BrowserSession) -> None:
             # 代理端口可连接不代表其上游 TLS 可用，避免坏节点长期占住 worker。
             timeout=12,
         )
-        nav.raise_for_status()
-        observe = getattr(session, "observe_chatgpt_document", None)
-        if callable(observe):
-            observe(nav)
+        if int(getattr(nav, "status_code", 0) or 0) >= 400 and _is_cf_challenge_response(nav):
+            # 登录页 document 只是 best-effort 指纹预热。CF 挑战它并不代表后面的
+            # CSRF/Signin 一定不可用（实测同一出口下 document 403、bootstrap 200 会
+            # 同时出现），把它当硬门槛会让本来能成功的换绑/查活直接中断。
+            # 这里只记录特征并清掉可选预热触发的会话熔断，把判定权交给强制步骤。
+            logger.warning(
+                "[查活] /auth/login 顶层导航被 Cloudflare 挑战（cf-mitigated=challenge），"
+                "跳过页面预热继续 CSRF/Signin：url=%s",
+                getattr(nav, "url", "") or "https://chatgpt.com/auth/login",
+            )
+            _clear_optional_bootstrap_circuit(session)
+        else:
+            nav.raise_for_status()
+            observe = getattr(session, "observe_chatgpt_document", None)
+            if callable(observe):
+                observe(nav)
 
         stage = "anonymous bootstrap"
         anonymous_bootstrap(session, strict=False)
@@ -205,6 +286,7 @@ def _network_preflight_with_retry(
             attempt, max_attempts,
         )
         logger.info("[查活] 指纹摘要：%s", session.fingerprint_summary_text())
+        cf_hits_before = int(getattr(session, "cf_challenge_hits", 0) or 0)
         try:
             _warm_login_fingerprint_context(session)
             csrf = get_csrf_token(session)
@@ -214,6 +296,23 @@ def _network_preflight_with_retry(
             return session, authorize_url
         except Exception as exc:
             last_exc = exc
+            cf_challenged = _is_cf_challenge_error(exc) or bool(
+                getattr(session, "cf_challenged_after", lambda _n: False)(cf_hits_before)
+            )
+            if cf_challenged:
+                # CF 主动挑战绑定出口 IP 信誉 / TLS 指纹，同一会话原地重试只会稳定
+                # 复现 403。立刻上报坏出口并抛出，让上层换一条出口 / 重建指纹，而不是
+                # 把 max_attempts 次机会全浪费在同一个出口上。
+                _report_cf_challenged_proxy(session)
+                logger.warning(
+                    "[查活] 检测到 Cloudflare 挑战（%s/%s），放弃同会话重试，改换出口/指纹：%s",
+                    attempt, max_attempts, str(exc)[:200],
+                )
+                try:
+                    close_browser_session(session)
+                except Exception:
+                    pass
+                raise
             if attempt >= max_attempts or not _is_retryable_network_error(exc):
                 try:
                     close_browser_session(session)

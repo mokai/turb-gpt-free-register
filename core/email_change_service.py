@@ -324,7 +324,10 @@ def _refresh_recent_login(
     if selected_proxy:
         routes.append((selected_proxy, fingerprint_state, route_label))
     max_routes = max(1, int(getattr(_proxy_cfg, "PROXY_MAX_ROUTE_ATTEMPTS", 4) or 4))
-    while dedicated_pool and selected_proxy and len(routes) < max_routes:
+    # 未配置换绑专用池时也要能换出口：CF 挑战是绑定单个出口 IP 的，只有
+    # 「当前代理 + 直连」两条路时，一个有信誉问题的住宅出口就会把整次换绑打死。
+    # 这里继续从通用池补几条未用过的出口，直到达到换路上限。
+    while selected_proxy and len(routes) < max_routes:
         next_proxy = _pick_route_proxy(used_routes, use_change_pool=False)
         if not next_proxy:
             break

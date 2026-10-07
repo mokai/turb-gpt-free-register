@@ -205,6 +205,12 @@ class BrowserSession:
         self.blocked_until = 0.0
         self.blocked_reason = ""
 
+        # Cloudflare 主动挑战单独计数：403 + ``cf-mitigated=challenge`` 绑定出口 IP 信誉
+        # 与 TLS 指纹（见 tools/test_cf_impersonate_matrix.py），同一会话原地重试必然复现。
+        # 上层据此放弃原地重试、改换出口/重建指纹。
+        self.cf_challenge_hits = 0
+        self.last_cf_challenge_url = ""
+
         # 先用当前代理检测出口 IP 地理信息，再为本会话挑一份稳定浏览器画像。
         # 这样 Accept-Language / navigator.language / timezone 可自动跟随出口地区。
         self.exit_geo = self._detect_exit_geo() if detect_exit_geo else {}
@@ -779,11 +785,31 @@ class BrowserSession:
             return max(0, int(text))
         return 0
 
+    @staticmethod
+    def _is_cf_mitigated_challenge(resp) -> bool:
+        """响应是否带 Cloudflare 挑战标记（``cf-mitigated: challenge``）。"""
+        try:
+            headers = getattr(resp, "headers", None) or {}
+            return str(headers.get("cf-mitigated") or "").strip().lower() == "challenge"
+        except Exception:
+            return False
+
+    def cf_challenged_after(self, hits_before: int) -> bool:
+        """自 ``hits_before`` 起，本会话是否新增过 Cloudflare 主动挑战。"""
+        return int(self.cf_challenge_hits or 0) > int(hits_before or 0)
+
     def _observe_response_for_circuit_breaker(self, resp, url: str):
         status = int(getattr(resp, "status_code", 0) or 0)
         self._observe_cf_cookie_changes(url)
         if status not in (403, 429):
             return resp
+        if status == 403 and self._is_cf_mitigated_challenge(resp):
+            self.cf_challenge_hits = int(self.cf_challenge_hits or 0) + 1
+            self.last_cf_challenge_url = url
+            logger.warning(
+                "[CF] 收到 Cloudflare 主动挑战（cf-mitigated=challenge），"
+                "该出口/TLS 指纹需更换，原地重试无效：%s", url,
+            )
         retry_after = self._parse_retry_after(getattr(resp, "headers", {}).get("retry-after") if getattr(resp, "headers", None) else None)
         cool_down = retry_after if retry_after > 0 else (300 if status == 429 else 900)
         self.blocked_until = max(self.blocked_until, time.time() + min(cool_down, 3600))
