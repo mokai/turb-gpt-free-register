@@ -2155,6 +2155,13 @@
       background: #fff; box-shadow: 0 10px 26px rgba(16,24,40,.14);
     }
     .wb-dd-menu.hidden { display: none; }
+    /* 提链渠道菜单：独立 class，避免被 closeProxyGroupMenus 的全局 .wb-dd-menu 扫描误关 */
+    .extract-dd-menu {
+      position: absolute; z-index: 60; top: calc(100% + 4px); left: 0;
+      min-width: 210px; padding: 5px; border: 1px solid var(--line); border-radius: 8px;
+      background: #fff; box-shadow: 0 10px 26px rgba(16,24,40,.14);
+    }
+    .extract-dd-menu.hidden { display: none; }
     .wb-dd-menu-title {
       padding: 5px 9px 3px; font-size: 11px; color: var(--muted);
     }
@@ -2759,7 +2766,11 @@
             <button type="button" class="jobs-tb-btn jobs-tb-btn--primary wb-dd-caret" id="btnPlanGroupToggle" data-pg-toggle="planProxyGroupMenu" title="选择套餐查询使用的代理分组（可多选，每个分组各查一次）">▾</button>
             <div class="wb-dd-menu hidden" id="planProxyGroupMenu" role="menu"></div>
           </div>
-          <button type="button" class="jobs-tb-btn jobs-tb-btn--good" id="btnExtractSelectedLinksV2" disabled title="给选中的 free(可Plus试用) 账号批量提链，类型按配置 PIX/UPI/KAKAO_PAY/IDEAL">提链</button>
+          <div class="wb-dd-btn" id="extractChannelDdV2">
+            <button type="button" class="jobs-tb-btn jobs-tb-btn--good" id="btnExtractSelectedLinksV2" disabled title="给选中的 free(可Plus试用) 账号批量提链">提链</button>
+            <button type="button" class="jobs-tb-btn jobs-tb-btn--good wb-dd-caret" id="btnExtractChannelToggleV2" title="选择提链渠道：官方提链 或 dasaobi 公益提链">▾</button>
+            <div class="extract-dd-menu hidden" id="extractChannelMenuV2" role="menu"></div>
+          </div>
         </div>
         <div class="acc-v2-btn-group">
           <span class="acc-v2-btn-group-title">Codex</span>
@@ -3506,6 +3517,46 @@ async function loadSummary() {
   } catch(e) {}
 }
 
+// ---------- 注册参数本地缓存 ----------
+// 「注册数量 / 并发线程数」写进 localStorage，刷新页面或重开浏览器后沿用上次填的值。
+// 只缓存这两个输入框；代理分组另有 PROXY_GROUP_LS_KEY 单独缓存。
+const REG_INPUTS_LS_KEY = 'wb.regInputs.v1';
+const REG_INPUT_IDS = ['regCountV2', 'regWorkersV2'];
+function saveRegInputs() {
+  try {
+    const data = {};
+    REG_INPUT_IDS.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el && String(el.value).trim() !== '') data[id] = String(el.value).trim();
+    });
+    localStorage.setItem(REG_INPUTS_LS_KEY, JSON.stringify(data));
+  } catch (e) { /* 本地缓存不可用（隐私模式等）时忽略，不影响注册 */ }
+}
+function restoreRegInputs() {
+  let data = null;
+  try { data = JSON.parse(localStorage.getItem(REG_INPUTS_LS_KEY) || 'null'); } catch (e) { data = null; }
+  if (!data || typeof data !== 'object') return;
+  REG_INPUT_IDS.forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const num = parseInt(data[id], 10);
+    if (!Number.isFinite(num)) return;   // 缓存损坏/为空时保留 HTML 默认值
+    const min = Number(el.min || 1);
+    const max = Number(el.max || 9999);
+    el.value = String(Math.min(max, Math.max(min, num)));
+  });
+}
+function bindRegInputPersistence() {
+  restoreRegInputs();
+  REG_INPUT_IDS.forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el || el.dataset.persistBound === '1') return;
+    el.dataset.persistBound = '1';
+    el.addEventListener('input', saveRegInputs);
+    el.addEventListener('change', saveRegInputs);
+  });
+}
+
 // ---------- 注册 / 任务 ----------
 async function startRegistrationFromInputs(countEl, workersEl, startBtn) {
   const count = parseInt((countEl?.value || '1'), 10);
@@ -3535,6 +3586,7 @@ async function startRegistrationFromInputs(countEl, workersEl, startBtn) {
     const warnEl = $('#regWarnV2'); if (warnEl) warnEl.innerHTML = warnHtml;
     const c2 = $('#regCountV2'); if (c2) c2.value = count;
     const w2 = $('#regWorkersV2'); if (w2) w2.value = workers;
+    saveRegInputs();   // 回填后同步缓存，保证下次打开沿用
     refreshJobs();
   } catch(e) {
     // 错误里可能是多行提示（如"请先启动比特浏览器/RoxyBrowser 客户端"）：行内只留一行摘要，
@@ -3612,6 +3664,8 @@ function bindJobsBodyEvents(bodyEl) {
 (() => {
   const startV2 = $('#btnStartV2');
   if (startV2) startV2.addEventListener('click', () => startRegistrationFromInputs($('#regCountV2'), $('#regWorkersV2'), startV2));
+  // 注册数量 / 并发线程数：进入页面时回填本地缓存，编辑后即时写回
+  bindRegInputPersistence();
   const delV2 = $('#btnDeleteSelectedJobsV2');
   if (delV2) delV2.addEventListener('click', deleteSelectedJobs);
   const retryV2 = $('#btnRetrySelectedJobsV2');
@@ -4618,7 +4672,7 @@ function _extractLinkAction(r) {
   const eligible = plan === 'free' && !!r.plus_trial_eligible;
   if (!eligible) return '';
   const failedReason = s === 'failed' ? (r.extract_link_error || r.extract_link_message || '') : '';
-  return `<button class="good" data-extract-link="${esc(r.id)}" title="${esc(failedReason ? '重新提链；上次失败原因：' + failedReason : '为该 free(可Plus试用) 账号创建 PIX/UPI/KAKAO_PAY/IDEAL 提链任务')}">提链</button>`;
+  return `<button class="good" data-extract-link="${esc(r.id)}" title="${esc(failedReason ? '重新提链；上次失败原因：' + failedReason : '为该 free(可Plus试用) 账号创建提链任务（点击可选官方/dasaobi 公益渠道）')}">提链</button>`;
 }
 function _codexAction(r) {
   const s = r.codex_status || '';
@@ -5047,7 +5101,11 @@ async function onAccountsBodyClick(e) {
 
   const extractBtn = e.target.closest('[data-extract-link]');
   if (extractBtn) {
-    await extractOneLink(Number(extractBtn.dataset.extractLink), extractBtn);
+    const id = Number(extractBtn.dataset.extractLink);
+    openExtractChannelMenuAt(extractBtn, (ch) => {
+      EXTRACT_CHANNEL = ch;
+      extractOneLink(id, extractBtn);
+    });
     return;
   }
 
@@ -5697,6 +5755,91 @@ async function checkOnePlan(id, btn) {
   }
 }
 
+// ---------- 提链渠道选择 ----------
+const EXTRACT_CHANNEL_OPTIONS = [
+  { value: 'official', label: '官方提链' },
+  { value: 'dasaobi', label: 'dasaobi公益提链' },
+];
+let EXTRACT_CHANNEL = 'official';
+function currentExtractChannelLabel() {
+  const item = EXTRACT_CHANNEL_OPTIONS.find(o => o.value === EXTRACT_CHANNEL);
+  return item ? item.label : '官方提链';
+}
+function renderExtractChannelMenu(menuEl) {
+  if (!menuEl) return;
+  menuEl.innerHTML = EXTRACT_CHANNEL_OPTIONS.map(o =>
+    `<button type="button" class="wb-dd-item${o.value === EXTRACT_CHANNEL ? ' is-active' : ''}" data-extract-channel="${esc(o.value)}"><span class="wb-dd-item-mark">${o.value === EXTRACT_CHANNEL ? '✓' : ''}</span><span>${esc(o.label)}</span></button>`
+  ).join('');
+}
+function toggleExtractChannelMenu(anchorBtn) {
+  const menu = $('#extractChannelMenuV2');
+  if (!menu || !anchorBtn) return;
+  const box = $('#extractChannelDdV2');
+  const isOpen = !menu.classList.contains('hidden');
+  closeExtractChannelMenu();
+  if (isOpen) return;
+  renderExtractChannelMenu(menu);
+  menu.classList.remove('hidden');
+  if (box) box.classList.add('is-open');
+}
+function closeExtractChannelMenu() {
+  const menu = $('#extractChannelMenuV2');
+  if (menu) menu.classList.add('hidden');
+  const box = $('#extractChannelDdV2');
+  if (box) box.classList.remove('is-open');
+}
+function setExtractChannel(value) {
+  if (!EXTRACT_CHANNEL_OPTIONS.some(o => o.value === value)) return;
+  EXTRACT_CHANNEL = value;
+  const btn = $('#btnExtractSelectedLinksV2');
+  if (btn) {
+    const isDasaobi = value === 'dasaobi';
+    btn.textContent = isDasaobi ? '公益提链' : '提链';
+    btn.title = isDasaobi
+      ? '给选中的 free(可Plus试用) 账号批量提链（dasaobi 公益提链，无需 CDK）'
+      : '给选中的 free(可Plus试用) 账号批量提链（官方提链，按配置 PIX/UPI/KAKAO_PAY/IDEAL）';
+  }
+  closeExtractChannelMenu();
+}
+
+// 行内单账号“提链”按钮点击时弹出的浮层渠道菜单（position:fixed，避免被表格裁剪）。
+let _extractChannelFloatMenu = null;
+function closeExtractChannelFloatMenu() {
+  if (_extractChannelFloatMenu) {
+    _extractChannelFloatMenu.remove();
+    _extractChannelFloatMenu = null;
+  }
+}
+function openExtractChannelMenuAt(anchorEl, onPick) {
+  closeExtractChannelFloatMenu();
+  const rect = anchorEl.getBoundingClientRect();
+  const menu = document.createElement('div');
+  menu.className = 'extract-dd-menu';
+  menu.style.position = 'fixed';
+  menu.style.top = (rect.bottom + 4) + 'px';
+  menu.style.left = Math.min(rect.left, window.innerWidth - 220) + 'px';
+  menu.style.zIndex = '1000';
+  menu.innerHTML = EXTRACT_CHANNEL_OPTIONS.map(o =>
+    `<button type="button" class="wb-dd-item${o.value === EXTRACT_CHANNEL ? ' is-active' : ''}" data-extract-channel="${esc(o.value)}"><span class="wb-dd-item-mark">${o.value === EXTRACT_CHANNEL ? '✓' : ''}</span><span>${esc(o.label)}</span></button>`
+  ).join('');
+  menu.addEventListener('click', (ev) => {
+    const item = ev.target.closest('[data-extract-channel]');
+    if (!item) return;
+    const ch = item.dataset.extractChannel;
+    closeExtractChannelFloatMenu();
+    onPick(ch);
+  });
+  document.body.appendChild(menu);
+  _extractChannelFloatMenu = menu;
+  const closeOnOutside = (ev) => {
+    if (!menu.contains(ev.target) && !anchorEl.contains(ev.target)) {
+      closeExtractChannelFloatMenu();
+      document.removeEventListener('click', closeOnOutside);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', closeOnOutside), 0);
+}
+
 async function extractOneLink(id, btn) {
   const acc = ACCOUNTS.find(a => Number(a.id) === Number(id));
   if (!acc) { showToast('账号不存在'); return; }
@@ -5705,7 +5848,7 @@ async function extractOneLink(id, btn) {
     showToast('仅支持 free(可Plus试用) 账号提链');
     return;
   }
-  if (!confirm(`确定为该账号提链吗？\n\n${acc.email || ('#' + id)}\n\n提链类型按配置使用 PIX/UPI/KAKAO_PAY/IDEAL，成功会消耗 1 次 CDK。`)) return;
+  if (!confirm(`确定为该账号提链吗？\n\n${acc.email || ('#' + id)}\n\n渠道：${currentExtractChannelLabel()}`)) return;
   const old = btn.textContent;
   btn.disabled = true;
   btn.textContent = '提链中…';
@@ -5713,7 +5856,7 @@ async function extractOneLink(id, btn) {
     await api('/api/accounts/extract-link', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({account_id: id}),
+      body: JSON.stringify({account_id: id, channel: EXTRACT_CHANNEL}),
     });
     showToast('提链任务已入队');
     await pollAccountPlanStatuses();
@@ -5730,7 +5873,7 @@ async function extractSelectedLinks() {
   const selected = ids.map(id => ACCOUNTS.find(a => Number(a.id) === Number(id))).filter(Boolean);
   const eligible = selected.filter(a => (a.current_plan_type || a.plan_type || '').toString().toLowerCase() === 'free' && !!a.plus_trial_eligible);
   if (!eligible.length) { showToast('选中账号里没有 free(可Plus试用)'); return; }
-  if (!confirm(`确定批量提链 ${eligible.length} 个 free(可Plus试用) 账号吗？\n\n非可试用账号会自动跳过。成功会按账号消耗 CDK 次数。`)) return;
+  if (!confirm(`确定批量提链 ${eligible.length} 个 free(可Plus试用) 账号吗？\n\n渠道：${currentExtractChannelLabel()}\n\n非可试用账号会自动跳过。`)) return;
   const btn = $('#btnExtractSelectedLinksV2');
   const old = btn.textContent;
   btn.disabled = true;
@@ -5739,7 +5882,7 @@ async function extractSelectedLinks() {
     const r = await api('/api/accounts/extract-link-bulk', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({account_ids: ids}),
+      body: JSON.stringify({account_ids: ids, channel: EXTRACT_CHANNEL}),
     });
     const skipped = (r.skipped_count || 0) + (r.busy_count || 0) + (r.failed_count || 0);
     showToast(skipped ? `已入队 ${r.started_count || 0} 个，跳过/失败 ${skipped} 个` : `已入队 ${r.started_count || 0} 个`);
@@ -6241,6 +6384,17 @@ $('#emailChangeModalV2').addEventListener('click', e => { if (e.target.id === 'e
   };
   bind('btnCheckSelectedPlansV2', checkSelectedPlans);
   bind('btnExtractSelectedLinksV2', extractSelectedLinks);
+  bind('btnExtractChannelToggleV2', () => toggleExtractChannelMenu($('#btnExtractChannelToggleV2')));
+  const _extractChannelMenuEl = document.getElementById('extractChannelMenuV2');
+  if (_extractChannelMenuEl) {
+    _extractChannelMenuEl.addEventListener('click', (e) => {
+      const item = e.target.closest('[data-extract-channel]');
+      if (item) setExtractChannel(item.dataset.extractChannel);
+    });
+  }
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#extractChannelDdV2')) closeExtractChannelMenu();
+  });
   bind('btnRetrySelectedCodexV2', retrySelectedCodex);
   bind('btnDownloadSelectedCpaV2', downloadSelectedCpa);
   bind('btnStopSelectedCodexV2', stopSelectedCodex);
@@ -8079,6 +8233,7 @@ function configSectionIntro(name) {
   if (name === '浏览器画像') return '浏览器语言、时区、出口 IP 画像与注册省流量设置。';
   if (name === '代理池') return '代理列表与套餐/Agent 网络模式。';
   if (name === '提链') return '提链服务地址、CDK 与并发参数。';
+  if (name === '公益提链') return 'dasaobi 公益站提链（独立渠道，无需 CDK）：公益站地址、印度出口代理池与轮询参数。';
   return '';
 }
 function configFeatureIcon(key) {

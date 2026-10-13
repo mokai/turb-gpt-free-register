@@ -783,6 +783,39 @@ EDITABLE_FIELDS = [
         "key": "EXTRACT_LINK_WORKERS", "file": "extract_link.py", "type": "int", "group": "提链",
         "label": "提链并发数", "help": "批量提链后台线程数，建议 1-4",
     },
+    # ---- 公益提链（dasaobi 公益站，独立渠道，无需 CDK）----
+    {
+        "key": "UPI_PUBLIC_API_BASE", "file": "upi_public.py", "type": "str", "group": "公益提链",
+        "label": "公益站地址", "help": "dasaobi 公益站基础地址，例如 https://dasaobi.online/upi/",
+    },
+    {
+        "key": "UPI_PUBLIC_PROXY_POOL", "file": "upi_public.py", "type": "list_str_multiline", "group": "公益提链",
+        "label": "印度出口代理池", "help": "公益提链使用的印度（IN）随机出口代理，每行一个；留空则回退默认代理分组随机出口。代理可能含账号密码，保存到 .env",
+    },
+    {
+        "key": "UPI_PUBLIC_REQUEST_TIMEOUT", "file": "upi_public.py", "type": "int", "group": "公益提链",
+        "label": "单次请求超时(秒)", "help": "提交任务/查询结果单次请求超时，默认 30",
+    },
+    {
+        "key": "UPI_PUBLIC_POLL_INTERVAL", "file": "upi_public.py", "type": "float", "group": "公益提链",
+        "label": "轮询间隔(秒)", "help": "轮询公益站任务结果的间隔，默认 2.0",
+    },
+    {
+        "key": "UPI_PUBLIC_POLL_TIMEOUT", "file": "upi_public.py", "type": "int", "group": "公益提链",
+        "label": "轮询超时(秒)", "help": "单个任务最长轮询时长，超时判失败，默认 600",
+    },
+    {
+        "key": "UPI_PUBLIC_WORKERS", "file": "upi_public.py", "type": "int", "group": "公益提链",
+        "label": "公益提链并发数", "help": "公益提链后台线程数，默认 2",
+    },
+    {
+        "key": "UPI_PUBLIC_QUEUE_LIMIT", "file": "upi_public.py", "type": "int", "group": "公益提链",
+        "label": "公益提链队列上限", "help": "公益提链后台队列上限，默认 500",
+    },
+    {
+        "key": "UPI_PUBLIC_COOKIE_DIR", "file": "upi_public.py", "type": "str", "group": "公益提链",
+        "label": "Cookie 保存目录", "help": "公益站会话 Cookie 保存目录；留空用 run/upi-public-cookies",
+    },
     # ---- Codex 配置 ----
     {
         "key": "SUB2API_AUTO_EXPORT", "file": "sub2api.py", "type": "bool", "group": "Codex",

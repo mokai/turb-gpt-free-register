@@ -26,6 +26,7 @@ from core import (
     db,
     plan_check_service,
     extract_link_service,
+    upi_public_service,
     codex_agent_service,
     live_check_service,
     proxy_test_service,
@@ -1142,9 +1143,16 @@ def create_app(auth_code: str | None = None) -> Flask:
         plan = str(acc.get("current_plan_type") or acc.get("plan_type") or "").lower()
         return plan == "free" and bool(acc.get("plus_trial_eligible"))
 
+    def _extract_channel(data: dict) -> str:
+        """解析提链渠道。official=官方提链(CDK)；dasaobi=公益提链。默认 official。"""
+        ch = str((data or {}).get("channel") or "").strip().lower()
+        if ch in {"dasaobi", "upi_public", "public", "公益", "公益提链"}:
+            return "dasaobi"
+        return "official"
+
     @app.post("/api/accounts/extract-link")
     def api_account_extract_link():
-        """单账号提链。Body {account_id|id, link_type?, cdk?}。"""
+        """单账号提链。Body {account_id|id, channel?, link_type?, cdk?}。"""
         data = request.get_json(silent=True) or {}
         acc_id = data.get("account_id") or data.get("id")
         try:
@@ -1158,15 +1166,24 @@ def create_app(auth_code: str | None = None) -> Flask:
         token = (acc.get("access_token") or "").strip()
         if not token:
             return jsonify({"ok": False, "error": "该账号没有 access_token"}), 400
+        channel = _extract_channel(data)
         try:
-            queued = extract_link_service.enqueue_account_extract(
-                account_id=int(acc.get("id")),
-                email=acc.get("email") or "",
-                access_token=token,
-                trigger="manual",
-                link_type=data.get("link_type"),
-                cdk=data.get("cdk"),
-            )
+            if channel == "dasaobi":
+                queued = upi_public_service.enqueue_account_extract(
+                    account_id=int(acc.get("id")),
+                    email=acc.get("email") or "",
+                    access_token=token,
+                    trigger="manual",
+                )
+            else:
+                queued = extract_link_service.enqueue_account_extract(
+                    account_id=int(acc.get("id")),
+                    email=acc.get("email") or "",
+                    access_token=token,
+                    trigger="manual",
+                    link_type=data.get("link_type"),
+                    cdk=data.get("cdk"),
+                )
         except Exception as exc:
             return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 400
         if queued.get("busy"):
@@ -1177,13 +1194,14 @@ def create_app(auth_code: str | None = None) -> Flask:
 
     @app.post("/api/accounts/extract-link-bulk")
     def api_accounts_extract_link_bulk():
-        """批量提链。Body {account_ids:[...], link_type?, cdk?}。"""
+        """批量提链。Body {account_ids:[...], channel?, link_type?, cdk?}。"""
         data = request.get_json(silent=True) or {}
         ids = data.get("account_ids") or data.get("ids") or []
         if not isinstance(ids, list) or not ids:
             return jsonify({"ok": False, "error": "account_ids 必须是非空数组"}), 400
         if len(ids) > 500:
             return jsonify({"ok": False, "error": "单次最多提链 500 个账号"}), 400
+        channel = _extract_channel(data)
 
         started = []
         busy = []
@@ -1212,14 +1230,22 @@ def create_app(auth_code: str | None = None) -> Flask:
                 skipped.append({"id": acc_id, "email": email, "reason": "缺少 access_token"})
                 continue
             try:
-                queued = extract_link_service.enqueue_account_extract(
-                    account_id=acc_id,
-                    email=email or "",
-                    access_token=token,
-                    trigger="manual_bulk",
-                    link_type=data.get("link_type"),
-                    cdk=data.get("cdk"),
-                )
+                if channel == "dasaobi":
+                    queued = upi_public_service.enqueue_account_extract(
+                        account_id=acc_id,
+                        email=email or "",
+                        access_token=token,
+                        trigger="manual_bulk",
+                    )
+                else:
+                    queued = extract_link_service.enqueue_account_extract(
+                        account_id=acc_id,
+                        email=email or "",
+                        access_token=token,
+                        trigger="manual_bulk",
+                        link_type=data.get("link_type"),
+                        cdk=data.get("cdk"),
+                    )
             except Exception as exc:
                 failed.append({"id": acc_id, "email": email, "error": f"{type(exc).__name__}: {exc}"})
                 continue
