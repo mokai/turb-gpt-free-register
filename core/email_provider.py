@@ -12,8 +12,9 @@ EMAIL_SOURCE 支持单个或多个来源：
     "mailnest"
     "cloudmail"
     "remail"
+    "xigua"
     "outlook,generic_api,mailnest,cloudmail,remail"   # 按顺序兜底
-    ["outlook", "generic_api", "mailnest", "cloudmail", "remail"]  # 也兼容列表写法
+    ["outlook", "generic_api", "mailnest", "cloudmail", "remail", "xigua"]  # 也兼容列表写法
 """
 import logging
 import re
@@ -22,7 +23,7 @@ from typing import Iterable
 
 logger = logging.getLogger(__name__)
 
-_VALID_SOURCES = ("outlook", "generic_api", "imap", "cloudflare_domain", "cloudflare", "gptmail", "mailnest", "cloudmail", "remail", "icloud_hme")
+_VALID_SOURCES = ("outlook", "generic_api", "imap", "cloudflare_domain", "cloudflare", "gptmail", "mailnest", "cloudmail", "remail", "xigua", "icloud_hme")
 
 #: 公开别名：注册 / 换绑等调用方复用同一份来源白名单，新增邮箱服务商时只需改上面一行。
 VALID_EMAIL_SOURCES = _VALID_SOURCES
@@ -77,6 +78,9 @@ def _pick_from_source(source: str) -> str:
         return pick_account().email
     if source == "remail":
         from core.remail_client import pick_account
+        return pick_account().email
+    if source == "xigua":
+        from core.xigua_client import pick_account
         return pick_account().email
     if source == "icloud_hme":
         from core.icloud_hme_client import pick_account
@@ -156,6 +160,9 @@ def resolve_email_source(email: str) -> str:
     from core.remail_client import get_account_context as get_remail_context
     if get_remail_context(email):
         return "remail"
+    from core.xigua_client import get_account_context as get_xigua_context
+    if get_xigua_context(email):
+        return "xigua"
     from core.icloud_hme_client import get_account_context as get_icloud_hme_context
     if get_icloud_hme_context(email):
         return "icloud_hme"
@@ -327,6 +334,9 @@ def _dispatch_auto_otp(source: str, email: str, after_ts: float, extra_kwargs: d
     if source == "remail":
         from core.remail_client import fetch_latest_otp
         return fetch_latest_otp(email, after_ts=after_ts, **extra_kwargs)
+    if source == "xigua":
+        from core.xigua_client import fetch_latest_otp
+        return fetch_latest_otp(email, after_ts=after_ts, **extra_kwargs)
     if source == "icloud_hme":
         from core.icloud_hme_client import fetch_latest_otp
         return fetch_latest_otp(email, after_ts=after_ts, **extra_kwargs)
@@ -489,6 +499,9 @@ def release_email(email: str, status: str = "available", note: str | None = None
         release_account(email, status=status, note=note)
     elif source == "remail":
         from core.remail_client import release_account
+        release_account(email, status=status, note=note)
+    elif source == "xigua":
+        from core.xigua_client import release_account
         release_account(email, status=status, note=note)
     elif source == "icloud_hme":
         from core.icloud_hme_client import release_account

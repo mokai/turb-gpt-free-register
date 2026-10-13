@@ -405,6 +405,9 @@ def create_app(auth_code: str | None = None) -> Flask:
 
     init_auth(app, auth_code=auth_code)
     register_auth_routes(app)
+    recovered_registration_jobs = db.recover_interrupted_registration_jobs()
+    if recovered_registration_jobs:
+        logger.warning("已释放 %s 个因 WebUI 重启中断的注册任务", recovered_registration_jobs)
     recovered_plan_checks = db.recover_interrupted_plan_checks()
     if recovered_plan_checks:
         logger.warning("已恢复 %s 个因 WebUI 重启中断的套餐查询状态", recovered_plan_checks)
@@ -453,7 +456,7 @@ def create_app(auth_code: str | None = None) -> Flask:
         pool = {"total": 0, "available": 0, "used": 0, "failed": 0}
         for src in parse_email_sources(_email_cfg.EMAIL_SOURCE):
             # GPTMail/MailNest/CloudMail 地址按需生成，不属于本地邮箱池。
-            if src in ("gptmail", "mailnest", "cloudmail", "cloudflare"):
+            if src in ("gptmail", "mailnest", "cloudmail", "remail", "xigua", "cloudflare"):
                 continue
             one = (
                 db.generic_api_email_pool_summary() if src == "generic_api"
@@ -730,9 +733,7 @@ def create_app(auth_code: str | None = None) -> Flask:
         """给单个账号排队换绑邮箱。Body {source, proxy_group?}."""
         data = request.get_json(silent=True) or {}
         source = str(data.get("source") or "").strip().lower()
-        # 白名单直接复用 email_provider 的来源定义，新增邮箱服务商后换绑入口自动跟随。
-        from core.email_provider import VALID_EMAIL_SOURCES
-        allowed = set(VALID_EMAIL_SOURCES)
+        allowed = {"outlook", "generic_api", "imap", "cloudflare_domain", "cloudflare", "gptmail", "mailnest", "cloudmail", "remail", "xigua"}
         if source not in allowed:
             return jsonify({"ok": False, "error": "请选择有效的邮箱来源"}), 400
         proxy_group, group_error = _resolve_proxy_group_arg(data)
@@ -754,9 +755,7 @@ def create_app(auth_code: str | None = None) -> Flask:
         data = request.get_json(silent=True) or {}
         ids = data.get("account_ids") or data.get("ids") or []
         source = str(data.get("source") or "").strip().lower()
-        # 白名单直接复用 email_provider 的来源定义，新增邮箱服务商后换绑入口自动跟随。
-        from core.email_provider import VALID_EMAIL_SOURCES
-        allowed = set(VALID_EMAIL_SOURCES)
+        allowed = {"outlook", "generic_api", "imap", "cloudflare_domain", "cloudflare", "gptmail", "mailnest", "cloudmail", "remail", "xigua"}
         if source not in allowed:
             return jsonify({"ok": False, "error": "请选择有效的邮箱来源"}), 400
         if not isinstance(ids, list) or not ids:
@@ -2878,6 +2877,10 @@ def create_app(auth_code: str | None = None) -> Flask:
                     "ok": False,
                     "error": "已选择 cloudmail 邮箱来源，请填写 CloudMail Token（配置 → 邮箱 / OTP）。",
                 }), 400
+        if "xigua" in sources:
+            xigua_key = str(getattr(_email_cfg, "XIGUA_API_KEY", "") or "").strip()
+            if not xigua_key:
+                return jsonify({"ok": False, "error": "已选择 xigua 邮箱来源，请填写西瓜 API Key（配置 → 邮箱 / OTP）。"}), 400
         if "remail" in sources:
             api_base = str(getattr(_email_cfg, "REMAIL_API_BASE", "") or "").strip()
             api_key = str(getattr(_email_cfg, "REMAIL_API_KEY", "") or "").strip()
@@ -2912,7 +2915,7 @@ def create_app(auth_code: str | None = None) -> Flask:
                     "ok": False,
                     "error": "Remail 服务模式只能填写 code 或 purchase（配置 → 邮箱 / OTP）。",
                 }), 400
-        if "gptmail" in sources or "mailnest" in sources or "cloudmail" in sources or "remail" in sources or "cloudflare" in sources:
+        if "gptmail" in sources or "mailnest" in sources or "cloudmail" in sources or "remail" in sources or "xigua" in sources or "cloudflare" in sources:
             # 临时邮箱在任务开始时动态生成，不需要本地邮箱池容量提示。
             warning = ""
         elif "cloudflare_domain" in sources:

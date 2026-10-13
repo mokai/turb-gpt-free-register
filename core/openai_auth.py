@@ -39,6 +39,11 @@ def _report_authorize_cf_challenged_proxy(session: BrowserSession, exc: BaseExce
     还会把同一个坏出口发回来（实测该出口的挑战是纯 IP 信誉，与 TLS 指纹无关）。
 
     延迟导入避免 core.account_liveness ↔ core.openai_auth 形成循环依赖。
+
+    .. note::
+        2026-10-13 合并 main 后 authorize 的 403 改为「保留指纹 / Cookie，
+        清熔断后指数退避重试」，本函数当前**没有调用点**；保留在这里是为了
+        将来重新切回「立即停止 + 坏出口冷却上报」策略时可直接接回。
     """
     try:
         from core.account_liveness import (
@@ -314,18 +319,18 @@ def follow_authorize(session: BrowserSession, authorize_url: str) -> str:
             return final_url
         except Exception as exc:
             last_exc = exc
-            # CF 托管挑战绑定出口 IP 信誉，先把坏出口送进自适应路由冷却，避免
-            # 上层换路时又抽到它（authorize 这一跳不在 preflight 的上报范围内）。
-            cf_challenged = _report_authorize_cf_challenged_proxy(session, exc)
-            # authorize 的 403 是边缘风控对当前出口/会话的明确拒绝，不是瞬时网络
-            # 故障。同 URL、同 state、同出口连续重放既不会改善结果，还会扩大
-            # 当前会话的异常请求特征；立即停止并交由上层回收邮箱。
             if _exception_http_status(exc) == 403:
+                if attempt >= max_attempts:
+                    logger.warning("[步骤4] authorize HTTP 403，已达到最大重试次数")
+                    raise
+                _reset_retryable_circuit(session)
+                backoff = retry_delay * (2 ** (attempt - 1))
                 logger.warning(
-                    "[步骤4] authorize 被 HTTP 403 拒绝（%s），停止当前会话，不重复重放 OAuth state",
-                    "Cloudflare 挑战，该出口已记入冷却" if cf_challenged else "非 Cloudflare 挑战",
+                    "[步骤4] authorize HTTP 403，保留当前指纹和 Cookie，%.1fs 后重试 (%s/%s)",
+                    backoff, attempt, max_attempts,
                 )
-                raise
+                time.sleep(backoff)
+                continue
             if not _is_retryable_authorize_error(exc):
                 # 非临时性错误（比如 4xx 业务错误）直接抛出，不重试
                 raise

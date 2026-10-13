@@ -2041,6 +2041,9 @@
     .config-section-v2-subhelp {
       margin: 12px 0 0; font-size: 13px; color: #909399; line-height: 1.5;
     }
+    .config-section-v2-subhelp:has(.remail-promo-notice) {
+      white-space: nowrap; overflow-x: auto;
+    }
     .remail-promo-notice {
       display: inline-flex; align-items: center; gap: 6px;
       margin: 0 0 0 10px; padding: 8px 12px;
@@ -2714,7 +2717,7 @@
             <select id="promoTypeFilterV2"><option value="">全部</option><option value="plus">Plus</option><option value="pro">Pro</option><option value="go">Go</option><option value="team">Team</option><option value="business">Business</option></select>
           </label>
           <label class="acc-v2-inline" title="按 eligible_promo_campaigns 优惠百分比筛选">优惠力度
-            <select id="promoDiscountFilterV2"><option value="">全部</option><option value="100">100%优惠</option></select>
+            <select id="promoDiscountFilterV2"><option value="">全部</option><option value="100">100%优惠</option><option value="50">50%优惠</option></select>
           </label>
           <button type="button" class="acc-v2-toggle" id="showFreeAccountsOnlyV2" aria-pressed="false" title="只查询/显示已明确不能试用套餐的 free 账号；资格未知的账号不包含">free不可试用套餐</button>
           <div class="acc-v2-date-select" id="planGroupFilterWrapV2">
@@ -3105,7 +3108,7 @@
       <label class="outlook-import-field"><span>新邮箱来源</span><select id="emailChangeSourceV2">
         <option value="outlook">Outlook 邮箱池</option><option value="generic_api">通用 API</option><option value="imap">通用 IMAP</option>
         <option value="cloudflare_domain">Cloudflare 域名邮箱</option><option value="cloudflare">Cloudflare 临时邮箱</option>
-        <option value="gptmail">GPTMail</option><option value="mailnest">MailNest</option><option value="cloudmail">CloudMail</option><option value="remail">Remail</option>
+        <option value="gptmail">GPTMail</option><option value="mailnest">MailNest</option><option value="cloudmail">CloudMail</option><option value="remail">Remail</option><option value="xigua">西瓜</option>
         <option value="icloud_hme">iCloud HME</option>
       </select></label>
       <div class="banner warn">换绑成功后当前 access_token 会失效并被清空，系统会立即使用新邮箱自动查活并刷新 AT。原邮箱会保留在账号记录中，并按换绑前的来源放回邮箱池（Outlook / 通用 API / 通用 IMAP / 域名邮箱复位为可用；iCloud HME 别名通知平台放回项目可用池；临时邮箱来源不进本地池）。</div>
@@ -7260,6 +7263,7 @@ function emailConfigSectionForKey(key) {
   if (key.startsWith('CLOUDMAIL_')) return ['CloudMail', 'CloudMail 域名随机邮箱、Token 和收信 API 配置'];
   if (key.startsWith('REMAIL_')) return ['Remail', 'Remail 开放 API、项目下单和取件配置'];
   if (key.startsWith('ICLOUD_HME_')) return ['iCloud HME', 'iCloud HME 聚合平台：按项目预留 @icloud.com 别名、自动取码与失败回收'];
+  if (key.startsWith('XIGUA_')) return ['西瓜', '西瓜邮箱接码 API、项目方案和取件配置'];
   if (key.startsWith('OUTLOOK_')) return ['Outlook 邮箱池', 'Outlook 邮箱池和取件模式配置'];
   if (key.startsWith('IMAP_')) return ['通用 IMAP', '通用 IMAP 邮箱池的收件目录配置'];
   if (key.startsWith('CLOUDFLARE_')) return ['Cloudflare 临时邮箱', 'Cloudflare Worker 临时邮箱 API、鉴权与路径配置'];
@@ -8557,7 +8561,9 @@ function renderSectionedConfigSectionV2(name, fields, sectionForKey, preferred, 
   const switches = current.fields.filter(f => f.type === 'bool');
   const inputs = current.fields.filter(f => f.type !== 'bool');
   const promo = name === '邮箱 / OTP' && active === 'Remail'
-    ? '<span class="remail-promo-notice" role="note">通过作者卡网购买积分9折优惠</span>'
+    ? '<span class="remail-promo-notice" role="note">通过作者卡网购买积分9折优惠 · <a href="https://catfk.com/shop/9D4N5XEY" target="_blank" rel="noopener noreferrer">打开卡网</a></span>'
+    : name === '邮箱 / OTP' && active === '西瓜'
+    ? '<span class="remail-promo-notice" role="note">作者卡网购买CDK9折优惠 · <a href="https://catfk.com/shop/9D4N5XEY" target="_blank" rel="noopener noreferrer">打开卡网</a></span>'
     : '';
   const sectionHelp = current.help
     ? `<p class="config-section-v2-subhelp">${esc(current.help)}${promo}</p>`
@@ -8776,7 +8782,7 @@ function renderConfigSectionV2(name, fields) {
       name,
       fields,
       emailConfigSectionForKey,
-      ['通用邮箱 / OTP', 'GPTMail', 'MailNest', 'CloudMail', 'Remail', 'iCloud HME', 'Outlook 邮箱池', 'Cloudflare 临时邮箱', 'Cloudflare 域名邮箱', '其他邮箱配置'],
+      ['通用邮箱 / OTP', 'GPTMail', 'MailNest', 'CloudMail', 'Remail', '西瓜', 'iCloud HME', 'Outlook 邮箱池', 'Cloudflare 临时邮箱', 'Cloudflare 域名邮箱', '其他邮箱配置'],
       { get: () => CONFIG_EMAIL_ACTIVE_SECTION_V2, set: v => { CONFIG_EMAIL_ACTIVE_SECTION_V2 = v; } },
       'email-section-v2'
     );
