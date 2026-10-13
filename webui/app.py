@@ -733,7 +733,9 @@ def create_app(auth_code: str | None = None) -> Flask:
         """给单个账号排队换绑邮箱。Body {source, proxy_group?}."""
         data = request.get_json(silent=True) or {}
         source = str(data.get("source") or "").strip().lower()
-        allowed = {"outlook", "generic_api", "imap", "cloudflare_domain", "cloudflare", "gptmail", "mailnest", "cloudmail", "remail", "xigua"}
+        # 白名单直接复用 email_provider 的来源定义，新增邮箱服务商后换绑入口自动跟随。
+        from core.email_provider import VALID_EMAIL_SOURCES
+        allowed = set(VALID_EMAIL_SOURCES)
         if source not in allowed:
             return jsonify({"ok": False, "error": "请选择有效的邮箱来源"}), 400
         proxy_group, group_error = _resolve_proxy_group_arg(data)
@@ -755,7 +757,9 @@ def create_app(auth_code: str | None = None) -> Flask:
         data = request.get_json(silent=True) or {}
         ids = data.get("account_ids") or data.get("ids") or []
         source = str(data.get("source") or "").strip().lower()
-        allowed = {"outlook", "generic_api", "imap", "cloudflare_domain", "cloudflare", "gptmail", "mailnest", "cloudmail", "remail", "xigua"}
+        # 白名单直接复用 email_provider 的来源定义，新增邮箱服务商后换绑入口自动跟随。
+        from core.email_provider import VALID_EMAIL_SOURCES
+        allowed = set(VALID_EMAIL_SOURCES)
         if source not in allowed:
             return jsonify({"ok": False, "error": "请选择有效的邮箱来源"}), 400
         if not isinstance(ids, list) or not ids:
