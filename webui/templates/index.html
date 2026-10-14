@@ -2698,6 +2698,16 @@
         </div>
 
         <div class="acc-v2-btn-group">
+          <label class="acc-v2-inline" title="快捷筛选：未改绑=从未换绑成功且当前套餐为 Free 的邮箱；操作异常=换绑失败/查活失败/查询套餐失败的邮箱。该筛选与右侧套餐类筛选互斥（选中它会自动清空套餐类筛选，改动套餐类筛选也会把它复位）。">
+            <select id="quickFilterV2">
+              <option value="">快捷筛选：全部</option>
+              <option value="unchanged">未改绑（Free）</option>
+              <option value="abnormal">操作异常</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="acc-v2-btn-group">
           <span class="acc-v2-selected" id="accountsSelectedHintV2">已选 0</span>
           <label class="acc-v2-inline" title="批量补跑 Codex 的并发线程数">线程
             <span class="el-input-number">
@@ -3483,7 +3493,13 @@ async function copyText(text) {
 async function api(url, opts) {
   const r = await fetch(url, opts);
   const j = await r.json().catch(()=>({}));
-  if (!r.ok) throw new Error(j.error || ('HTTP '+r.status));
+  if (!r.ok) {
+    // 把响应体和状态码挂到 Error 上：调用方可以按 code 区分「自动跳过」这类非失败结果。
+    const err = new Error(j.error || ('HTTP '+r.status));
+    err.status = r.status;
+    err.payload = j;
+    throw err;
+  }
   return j;
 }
 function debounce(fn, wait=250) {
@@ -4225,6 +4241,11 @@ function getAccountsPlanFilter() {
   if (SHOW_FREE_ACCOUNTS_ONLY) return 'free_no_trial';
   return '';
 }
+// 快捷筛选：未改绑（Free）/ 操作异常；与套餐类筛选互斥，非空时套餐类筛选一律为空。
+function getAccountsQuickFilter() {
+  const el = document.getElementById('quickFilterV2');
+  return (el ? el.value : '').trim().toLowerCase();
+}
 // 套餐分组筛选：值为「分组|状态」，状态里带活动短标签（plus_trial:1月半价）。
 let PLAN_GROUP_FILTER = [];
 let PLAN_GROUP_OPTIONS = [];
@@ -4270,6 +4291,8 @@ function renderPlanGroupFilterMenu() {
   menu.innerHTML = html.join('');
 }
 function applyPlanGroupFilter() {
+  // 套餐分组属于套餐类筛选：一旦选上就把快捷筛选复位，避免两类条件互相打架。
+  if (PLAN_GROUP_FILTER.length) clearAccountsQuickFilter();
   ACCOUNT_SELECTED.clear();
   PAGERS.accounts.page = 1;
   planStatusRevision = '';
@@ -4316,7 +4339,7 @@ async function loadAccounts() {
     const dateFrom = document.getElementById('dateFromAccountsV2')?.value || '';
     const dateTo = document.getElementById('dateToAccountsV2')?.value || '';
     const p = PAGERS.accounts;
-    const res = await api(`/api/accounts?paged=1&page=${encodeURIComponent(p.page)}&page_size=${encodeURIComponent(p.size)}&archived=${encodeURIComponent(archived)}&plan=${encodeURIComponent(plan)}&codex_status=${encodeURIComponent(codex)}&totp_status=${encodeURIComponent(totp)}&plan_group=${encodeURIComponent(planGroupFilterQuery())}&q=${encodeURIComponent(q)}&date_from=${encodeURIComponent(dateFrom)}&date_to=${encodeURIComponent(dateTo)}`);
+    const res = await api(`/api/accounts?paged=1&page=${encodeURIComponent(p.page)}&page_size=${encodeURIComponent(p.size)}&archived=${encodeURIComponent(archived)}&plan=${encodeURIComponent(plan)}&codex_status=${encodeURIComponent(codex)}&totp_status=${encodeURIComponent(totp)}&plan_group=${encodeURIComponent(planGroupFilterQuery())}&special=${encodeURIComponent(getAccountsQuickFilter())}&q=${encodeURIComponent(q)}&date_from=${encodeURIComponent(dateFrom)}&date_to=${encodeURIComponent(dateTo)}`);
     ACCOUNTS = res.items || [];
     ACCOUNTS_TOTAL = Number(res.total || ACCOUNTS.length || 0);
     const totalPages = Math.max(1, Math.ceil(ACCOUNTS_TOTAL / p.size));
@@ -4343,7 +4366,7 @@ async function pollAccountPlanStatuses() {
     const dateFrom = document.getElementById('dateFromAccountsV2')?.value || '';
     const dateTo = document.getElementById('dateToAccountsV2')?.value || '';
     const p = PAGERS.accounts;
-    const snapshot = await api(`/api/accounts/plan-check-status?page=${encodeURIComponent(p.page)}&page_size=${encodeURIComponent(p.size)}&archived=${encodeURIComponent(archived)}&plan=${encodeURIComponent(plan)}&codex_status=${encodeURIComponent(codex)}&totp_status=${encodeURIComponent(totp)}&plan_group=${encodeURIComponent(planGroupFilterQuery())}&q=${encodeURIComponent(q)}&date_from=${encodeURIComponent(dateFrom)}&date_to=${encodeURIComponent(dateTo)}`);
+    const snapshot = await api(`/api/accounts/plan-check-status?page=${encodeURIComponent(p.page)}&page_size=${encodeURIComponent(p.size)}&archived=${encodeURIComponent(archived)}&plan=${encodeURIComponent(plan)}&codex_status=${encodeURIComponent(codex)}&totp_status=${encodeURIComponent(totp)}&plan_group=${encodeURIComponent(planGroupFilterQuery())}&special=${encodeURIComponent(getAccountsQuickFilter())}&q=${encodeURIComponent(q)}&date_from=${encodeURIComponent(dateFrom)}&date_to=${encodeURIComponent(dateTo)}`);
     const items = snapshot.items || [];
     const accountById = new Map(ACCOUNTS.map(r => [Number(r.id), r]));
     const hasUnknown = items.some(item => !accountById.has(Number(item.id)));
@@ -4817,6 +4840,59 @@ function updateAccountSelectionUi(pageRows = null) {
   }
 }
 
+// ---------- 选中状态自动化：已达成目标的账号自动取消勾选 ----------
+// 批量换绑 / 批量开 2FA 提交时，已达成目标状态的账号自动跳过，并取消它们的勾选；
+// 未达成的账号保留原有勾选状态，方便直接再点一次。
+function findAccountById(id) {
+  const n = Number(id);
+  return ACCOUNTS.find(a => Number(a.id) === n) || null;
+}
+// 已改绑：换绑成功过。口径与后端「未改绑（Free）」快捷筛选相反
+//（email_change_status=success / 有原邮箱 / 有换绑历史）。
+function accountAlreadyChangedEmail(r) {
+  if (!r) return false;
+  if (String(r.email_change_status || '').trim().toLowerCase() === 'success') return true;
+  if (String(r.original_email || '').trim()) return true;
+  const history = r.email_history;
+  if (Array.isArray(history)) return history.length > 0;
+  return !!String(history || '').trim();
+}
+function accountTotpEnabled(r) {
+  if (!r) return false;
+  if (r.totp_enabled === true) return true;
+  return !!String(r.totp_secret || '').trim();
+}
+// 只取消这批账号的勾选（内存 ACCOUNT_SELECTED + 当前页 DOM 复选框一起改）。
+function dropAccountSelection(ids) {
+  let hit = false;
+  (ids || []).forEach(raw => {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return;
+    if (ACCOUNT_SELECTED.delete(n)) hit = true;
+    document.querySelectorAll(`.account-row-check[data-account-id="${n}"]`)
+      .forEach(cb => { cb.checked = false; });
+  });
+  if (hit) updateAccountSelectionUi();
+}
+// 从后端 2FA 批量回执里收集「已开启 2FA」的账号 id，再用本地列表兜底。
+function collectTotpEnabledIds(ids, resp) {
+  const out = new Set();
+  const push = (v) => {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) out.add(n);
+  };
+  const data = resp || {};
+  (data.already_enabled || []).forEach(item => push(item && item.id));
+  (data.skipped || []).forEach(item => {
+    if (!item) return;
+    const code = String(item.code || '');
+    const reason = String(item.reason || '');
+    if (code === 'already_enabled' || reason.indexOf('已经开启 2FA') >= 0) push(item.id);
+  });
+  (ids || []).forEach(id => { if (accountTotpEnabled(findAccountById(id))) push(id); });
+  return Array.from(out);
+}
+
 // ---------- 补跑日志面板 ----------
 let retryLogEmail = null, retryLogTimer = null;
 
@@ -5092,7 +5168,7 @@ async function onAccountsBodyClick(e) {
 
   const changeEmailBtn = e.target.closest('[data-account-change-email]');
   if (changeEmailBtn) {
-    openEmailChangeModal([Number(changeEmailBtn.dataset.accountChangeEmail)]);
+    openEmailChangeModal([Number(changeEmailBtn.dataset.accountChangeEmail)], true);
     return;
   }
 
@@ -5241,6 +5317,36 @@ function setAccountsFilterToggle(el, on) {
   el.classList.toggle('is-active', !!on);
   el.setAttribute('aria-pressed', on ? 'true' : 'false');
 }
+// 「快捷筛选」与套餐类筛选互斥（双向）：
+// 选快捷筛选 → 清空套餐三开关 + 优惠类型/力度 + 套餐分组；
+// 动套餐类筛选 → 快捷筛选复位为「全部」。
+function clearAccountsQuickFilter() {
+  const el = $('#quickFilterV2');
+  if (el) el.value = '';
+}
+function clearAccountsPlanFilters() {
+  SHOW_PLUS_ACCOUNTS_ONLY = false;
+  SHOW_PLUS_TRIAL_ACCOUNTS_ONLY = false;
+  SHOW_FREE_ACCOUNTS_ONLY = false;
+  const promoTypeV2 = $('#promoTypeFilterV2');
+  if (promoTypeV2) promoTypeV2.value = '';
+  const promoDiscountV2 = $('#promoDiscountFilterV2');
+  if (promoDiscountV2) promoDiscountV2.value = '';
+  PLAN_GROUP_FILTER = [];
+  setAccountsFilterToggle($('#showPlusAccountsOnlyV2'), false);
+  setAccountsFilterToggle($('#showPlusTrialAccountsOnlyV2'), false);
+  setAccountsFilterToggle($('#showFreeAccountsOnlyV2'), false);
+  renderPlanGroupFilterMenu();
+}
+// 下拉框 change 即查询，无需再点「刷新账号」。
+async function applyAccountsQuickFilter() {
+  if (getAccountsQuickFilter()) clearAccountsPlanFilters();
+  ACCOUNT_SELECTED.clear();
+  PAGERS.accounts.page = 1;
+  planStatusRevision = '';
+  await loadAccounts();
+  await pollAccountPlanStatuses();
+}
 async function applyAccountsArchivedFilter(on) {
   SHOW_ARCHIVED_ACCOUNTS = !!on;
   setAccountsFilterToggle($('#showArchivedAccountsV2'), SHOW_ARCHIVED_ACCOUNTS);
@@ -5255,6 +5361,7 @@ async function applyAccountsPlusFilter(on) {
     SHOW_PLUS_TRIAL_ACCOUNTS_ONLY = false;
     SHOW_FREE_ACCOUNTS_ONLY = false;
   }
+  clearAccountsQuickFilter();
   setAccountsFilterToggle($('#showPlusAccountsOnlyV2'), SHOW_PLUS_ACCOUNTS_ONLY);
   setAccountsFilterToggle($('#showPlusTrialAccountsOnlyV2'), SHOW_PLUS_TRIAL_ACCOUNTS_ONLY);
   setAccountsFilterToggle($('#showFreeAccountsOnlyV2'), SHOW_FREE_ACCOUNTS_ONLY);
@@ -5269,6 +5376,7 @@ async function applyAccountsPlusTrialFilter(on) {
     SHOW_PLUS_ACCOUNTS_ONLY = false;
     SHOW_FREE_ACCOUNTS_ONLY = false;
   }
+  clearAccountsQuickFilter();
   setAccountsFilterToggle($('#showPlusAccountsOnlyV2'), SHOW_PLUS_ACCOUNTS_ONLY);
   setAccountsFilterToggle($('#showPlusTrialAccountsOnlyV2'), SHOW_PLUS_TRIAL_ACCOUNTS_ONLY);
   setAccountsFilterToggle($('#showFreeAccountsOnlyV2'), SHOW_FREE_ACCOUNTS_ONLY);
@@ -5283,6 +5391,7 @@ async function applyAccountsFreeFilter(on) {
     SHOW_PLUS_ACCOUNTS_ONLY = false;
     SHOW_PLUS_TRIAL_ACCOUNTS_ONLY = false;
   }
+  clearAccountsQuickFilter();
   setAccountsFilterToggle($('#showPlusAccountsOnlyV2'), SHOW_PLUS_ACCOUNTS_ONLY);
   setAccountsFilterToggle($('#showPlusTrialAccountsOnlyV2'), SHOW_PLUS_TRIAL_ACCOUNTS_ONLY);
   setAccountsFilterToggle($('#showFreeAccountsOnlyV2'), SHOW_FREE_ACCOUNTS_ONLY);
@@ -5353,6 +5462,9 @@ async function refreshAccountsList(btn) {
   if (freeV2) freeV2.addEventListener('click', () => {
     applyAccountsFreeFilter(!SHOW_FREE_ACCOUNTS_ONLY);
   });
+  // 快捷筛选：change 立即查询（互斥清理由 applyAccountsQuickFilter 负责）。
+  const quickV2 = $('#quickFilterV2');
+  if (quickV2) quickV2.addEventListener('change', () => { applyAccountsQuickFilter(); });
   const refreshV2 = $('#btnRefreshAccountsV2');
   if (refreshV2) refreshV2.addEventListener('click', () => refreshAccountsList(refreshV2));
 
@@ -5438,12 +5550,16 @@ async function setupSelectedTotp() {
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({account_ids: ids, ...proxyGroupRequestFields('totp')}),
     });
-    (r.started || []).forEach(item => ACCOUNT_SELECTED.delete(Number(item.id)));
+    // 已开启 2FA 的账号：自动跳过 + 取消勾选；其余（含本次已入队的）保留勾选状态，
+    // 任务跑完之后它们就是「已开启」，再点一次会被自动跳过并取消勾选。
+    const alreadyEnabledIds = collectTotpEnabledIds(ids, r);
+    if (alreadyEnabledIds.length) dropAccountSelection(alreadyEnabledIds);
     const skippedCount = Number(r.skipped_count ?? (r.skipped || []).length) || 0;
     const busyCount = Number(r.busy_count ?? (r.busy || []).length) || 0;
     const failedCount = Number(r.failed_count ?? (r.failed || []).length) || 0;
     const details = [];
     if (skippedCount) details.push(`跳过 ${skippedCount} 个`);
+    if (alreadyEnabledIds.length) details.push(`其中 ${alreadyEnabledIds.length} 个已开启（已取消勾选）`);
     if (busyCount) details.push(`进行中 ${busyCount} 个`);
     if (failedCount) details.push(`失败 ${failedCount} 个`);
     showToast(`已入队 ${r.started_count || 0} 个${details.length ? '，' + details.join('，') : ''}`);
@@ -6340,12 +6456,19 @@ async function copyCurrentPageLines() {
   try { copyText((await fetchAccountSecrets(ids, 'copy_line')).join('\n')); } catch(e) { showToast('复制失败: ' + e.message); }
 }
 let EMAIL_CHANGE_ACCOUNT_IDS = [];
-function openEmailChangeModal(ids) {
+let EMAIL_CHANGE_SINGLE = false;   // true = 行内「换绑邮箱」入口（单账号），false = 工具栏批量入口
+function openEmailChangeModal(ids, single) {
   EMAIL_CHANGE_ACCOUNT_IDS = (ids || []).map(Number).filter(Boolean);
+  EMAIL_CHANGE_SINGLE = !!single;
   if (!EMAIL_CHANGE_ACCOUNT_IDS.length) { showToast('请先选择账号'); return; }
-  $('#emailChangeHintV2').textContent = (EMAIL_CHANGE_ACCOUNT_IDS.length === 1
+  const changedCount = EMAIL_CHANGE_ACCOUNT_IDS.filter(id => accountAlreadyChangedEmail(findAccountById(id))).length;
+  let hint = EMAIL_CHANGE_ACCOUNT_IDS.length === 1
     ? `将为账号 #${EMAIL_CHANGE_ACCOUNT_IDS[0]} 换绑新邮箱，请选择来源。`
-    : `将为选中的 ${EMAIL_CHANGE_ACCOUNT_IDS.length} 个账号分别领取并换绑新邮箱。`) + `（${proxyGroupDesc('email')}）`;
+    : `将为选中的 ${EMAIL_CHANGE_ACCOUNT_IDS.length} 个账号分别领取并换绑新邮箱。`;
+  if (changedCount) {
+    hint += `其中 ${changedCount} 个已换绑成功，提交时会自动跳过并取消勾选，实际只换绑 ${EMAIL_CHANGE_ACCOUNT_IDS.length - changedCount} 个。`;
+  }
+  $('#emailChangeHintV2').textContent = hint + `（${proxyGroupDesc('email')}）`;
   $('#emailChangeModalV2').classList.remove('hidden');
   updateModalScrollLock();
 }
@@ -6355,25 +6478,57 @@ function closeEmailChangeModal() {
   updateModalScrollLock();
 }
 async function submitEmailChange() {
-  const ids = EMAIL_CHANGE_ACCOUNT_IDS.slice();
+  const selected = EMAIL_CHANGE_ACCOUNT_IDS.map(Number).filter(Boolean);
   const source = $('#emailChangeSourceV2').value;
-  if (!ids.length) return;
+  const isSingle = EMAIL_CHANGE_SINGLE && selected.length === 1;
+  if (!selected.length) return;
   const btn = $('#btnSubmitEmailChangeV2');
+  // 已换绑成功的账号：自动跳过 + 取消勾选；未换绑的保留勾选状态。
+  const changedIds = new Set(selected.filter(id => accountAlreadyChangedEmail(findAccountById(id))));
+  const ids = selected.filter(id => !changedIds.has(id));
+  if (changedIds.size) dropAccountSelection(Array.from(changedIds));
+  if (!ids.length) {
+    closeEmailChangeModal();
+    updateAccountSelectionUi();
+    showToast(`选中的 ${changedIds.size} 个账号都已换绑成功，已自动跳过并取消勾选`);
+    return;
+  }
   btn.disabled = true;
   try {
-    const url = ids.length === 1 ? `/api/accounts/${ids[0]}/change-email` : '/api/accounts/change-email-bulk';
-    const body = ids.length === 1
+    // 批量入口即使过滤后只剩 1 个也走批量接口：后端回执里会带上 already_changed 名单。
+    const url = isSingle ? `/api/accounts/${ids[0]}/change-email` : '/api/accounts/change-email-bulk';
+    const body = isSingle
       ? {source, ...proxyGroupRequestFields('email')}
       : {source, account_ids: ids, ...proxyGroupRequestFields('email')};
     const r = await api(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    // 本地列表可能过期，以后端回执的「已换绑」名单为准再取消一次勾选。
+    (r.already_changed || []).forEach(item => {
+      const n = Number(item && item.id);
+      if (Number.isFinite(n)) changedIds.add(n);
+    });
+    if (changedIds.size) dropAccountSelection(Array.from(changedIds));
     closeEmailChangeModal();
-    ACCOUNT_SELECTED.clear();
-    showToast(ids.length === 1 ? '邮箱换绑任务已开始' : `已开始 ${r.started_count || 0} 个换绑任务，跳过 ${(r.skipped || []).length} 个`);
+    updateAccountSelectionUi();
+    const skippedCount = Number(r.skipped_count ?? (r.skipped || []).length) || 0;
+    const changedNote = changedIds.size ? `（其中 ${changedIds.size} 个已换绑成功，已取消勾选）` : '';
+    showToast(isSingle
+      ? `邮箱换绑任务已开始${changedNote}`
+      : `已开始 ${r.started_count || 0} 个换绑任务，跳过 ${skippedCount} 个${changedNote}`);
     planStatusRevision = '';
     loadAccounts();
     const poll = setInterval(loadAccounts, 5000);
     setTimeout(() => clearInterval(poll), 10 * 60 * 1000);
-  } catch (e) { showToast('邮箱换绑失败: ' + e.message); }
+  } catch (e) {
+    // 本地列表过期：后端确认这个账号已换绑成功 → 按「自动跳过」处理，不当失败报错。
+    if (e && e.payload && e.payload.code === 'already_changed') {
+      dropAccountSelection(selected);
+      closeEmailChangeModal();
+      updateAccountSelectionUi();
+      showToast('该账号已换绑成功，已自动跳过并取消勾选');
+    } else {
+      showToast('邮箱换绑失败: ' + e.message);
+    }
+  }
   finally { btn.disabled = false; }
 }
 $('#btnCloseEmailChangeV2').addEventListener('click', closeEmailChangeModal);

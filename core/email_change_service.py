@@ -699,3 +699,28 @@ def enqueue(account_id: int, source: str, trigger: str = "manual", proxy_group: 
 def is_running(account_id: int) -> bool:
     with _LOCK:
         return int(account_id) in _RUNNING
+
+
+def is_already_changed(account: dict | None) -> bool:
+    """账号是否「已改绑」（换绑成功过）。
+
+    口径与 db 侧「未改绑（Free）」快捷筛选严格相反（见 core/db.py 的
+    `_account_filter_sql`）：
+      1. email_change_status == "success"；
+      2. 有 original_email —— 它只在换绑成功时写入，是「改过绑」的权威标记
+         （含「改成功后最近一次又失败」的账号）；
+      3. 有换绑历史 email_history。
+
+    批量换绑遇到这类账号必须**跳过**：重复换绑会把上一次刚换上的新邮箱
+    再换掉，属于用户不希望的破坏性操作。前端据此把它们自动取消勾选。
+    """
+    if not account:
+        return False
+    if str(account.get("email_change_status") or "").strip().lower() == "success":
+        return True
+    if str(account.get("original_email") or "").strip():
+        return True
+    history = account.get("email_history")
+    if isinstance(history, (list, tuple, set, dict)):
+        return len(history) > 0
+    return bool(str(history or "").strip())

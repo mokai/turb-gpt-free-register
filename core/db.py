@@ -11,7 +11,7 @@ import sqlite3
 import threading
 import uuid
 from contextlib import closing
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -568,8 +568,9 @@ def _account_filter_sql(
     codex_filter: str | None = None,
     totp_filter: str | None = None,
     plan_group_filter=None,
+    special_filter: str | None = None,
 ) -> tuple[list[str], list[Any]]:
-    """把账号列表的套餐、Codex、2FA 过滤条件下推到 SQLite。
+    """把账号列表的套餐、Codex、2FA、快捷筛选条件下推到 SQLite。
 
     套餐、Codex、2FA 状态仍保存在账号 payload 中，因此这里使用 SQLite JSON1
     直接过滤，而不是先把整张 accounts 表反序列化到 Python 再切页。
@@ -684,6 +685,43 @@ def _account_filter_sql(
     group_where, group_params = _plan_group_filter_sql(plan_group_filter)
     where.extend(group_where)
     params.extend(group_params)
+
+    special = str(special_filter or "").strip().lower()
+    if special and special not in {"all", "*", "any"}:
+        if special in {"unchanged", "not_changed", "no_change", "never_changed", "free_unchanged"}:
+            # 未改绑：从未成功换绑过（状态非 success，且没有原邮箱、没有换绑历史）
+            # 并且当前套餐是 free 的账号。original_email 只在换绑成功时写入，
+            # 因此它是「改过绑」的权威标记（含"改成功后最近一次又失败"的账号）。
+            never_changed = (
+                "lower(COALESCE(CAST(json_extract(payload, '$.email_change_status') AS TEXT), '')) <> 'success'"
+                " AND length(trim(COALESCE(CAST(json_extract(payload, '$.original_email') AS TEXT), ''))) = 0"
+                " AND COALESCE(json_array_length(json_extract(payload, '$.email_history')), 0) = 0"
+            )
+            where.append("(" + never_changed + ")")
+            where.append(f"{plan_expr} = ?")
+            params.append("free")
+        elif special in {"abnormal", "error", "failed", "exception", "problem"}:
+            # 操作异常：换绑失败 / 查活失败 / 查询套餐失败，命中任意一项即算。
+            def _payload_text(path: str) -> str:
+                return f"lower(COALESCE(CAST(json_extract(payload, '{path}') AS TEXT), ''))"
+
+            plan_status = _payload_text("$.plan_check_status")
+            # 与 _decorate_account 的口径对齐：列表把超时未结束的 queued/running
+            # 也显示成「查询失败」，这里必须一起算作异常，否则筛选结果和肉眼所见不一致。
+            running_cutoff = (datetime.now() - timedelta(seconds=_PLAN_CHECK_STALE_SECONDS)).isoformat(timespec="seconds")
+            queued_cutoff = (datetime.now() - timedelta(seconds=_PLAN_CHECK_QUEUE_STALE_SECONDS)).isoformat(timespec="seconds")
+            # 时间戳缺失（空串）短于任何 ISO 串，比较成立即视为超时，和 fromisoformat 抛错时同判定。
+            plan_stale = (
+                f"(({plan_status} = 'running' AND COALESCE(CAST(json_extract(payload, '$.plan_check_started_at') AS TEXT), '') <= ?)"
+                f" OR ({plan_status} = 'queued' AND COALESCE(CAST(json_extract(payload, '$.plan_check_queued_at') AS TEXT), '') <= ?))"
+            )
+            why = [
+                f"{_payload_text('$.email_change_status')} = 'failed'",
+                f"{_payload_text('$.live_check_status')} = 'failed'",
+                f"({plan_status} = 'failed' OR {plan_stale})",
+            ]
+            where.append("(" + " OR ".join(why) + ")")
+            params.extend([running_cutoff, queued_cutoff])
     return where, params
 
 
@@ -2161,6 +2199,7 @@ def list_account_plan_check_statuses(
     date_to: str | None = None,
     totp_filter: str | None = None,
     plan_group_filter=None,
+    special_filter: str | None = None,
 ) -> dict:
     """返回不含 Token/邮箱密码的套餐查询轻量状态快照。"""
     fields = (
@@ -2198,6 +2237,7 @@ def list_account_plan_check_statuses(
             codex_filter=codex_filter,
             totp_filter=totp_filter,
             plan_group_filter=plan_group_filter,
+            special_filter=special_filter,
         )
         candidates, total, latest = _query_collection_page(
             "accounts",
@@ -2287,6 +2327,7 @@ def list_accounts(
     date_to: str | None = None,
     totp_filter: str | None = None,
     plan_group_filter=None,
+    special_filter: str | None = None,
 ) -> list[dict]:
     # 非分页兼容接口也走同一条 SQL 分页路径，避免 limit=500 时先读取整张表。
     result = list_accounts_page(
@@ -2300,6 +2341,7 @@ def list_accounts(
         date_to=date_to,
         totp_filter=totp_filter,
         plan_group_filter=plan_group_filter,
+        special_filter=special_filter,
     )
     return result["items"]
 
@@ -2315,6 +2357,7 @@ def list_accounts_page(
     date_to: str | None = None,
     totp_filter: str | None = None,
     plan_group_filter=None,
+    special_filter: str | None = None,
 ) -> dict:
     with _LOCK:
         limit = max(1, int(limit))
@@ -2324,6 +2367,7 @@ def list_accounts_page(
             codex_filter=codex_filter,
             totp_filter=totp_filter,
             plan_group_filter=plan_group_filter,
+            special_filter=special_filter,
         )
         candidates, total, latest = _query_collection_page(
             "accounts",

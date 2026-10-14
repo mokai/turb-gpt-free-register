@@ -582,6 +582,14 @@
             <label class="inline-num" title="默认只显示未归档账号；勾选后单独查看归档账号">
               <input id="showArchivedAccounts" type="checkbox" style="width:auto;min-height:auto;"> 查看归档
             </label>
+            <label class="inline-num" title="快捷筛选：未改绑=从未换绑成功且当前套餐为 Free 的邮箱；操作异常=换绑失败/查活失败/查询套餐失败的邮箱。该筛选与右侧套餐类筛选互斥（选中它会自动清空套餐类筛选，改动套餐类筛选也会把它复位）。">
+              快捷筛选
+              <select id="quickFilter" style="width:auto;min-height:auto;">
+                <option value="">全部</option>
+                <option value="unchanged">未改绑（Free）</option>
+                <option value="abnormal">操作异常</option>
+              </select>
+            </label>
             <label class="inline-num" title="只查询/显示已开通套餐的账号">
               <input id="showPlusAccountsOnly" type="checkbox" style="width:auto;min-height:auto;"> 已开通套餐
             </label>
@@ -957,7 +965,13 @@ async function copyText(text) {
 async function api(url, opts) {
   const r = await fetch(url, opts);
   const j = await r.json().catch(()=>({}));
-  if (!r.ok) throw new Error(j.error || ('HTTP '+r.status));
+  if (!r.ok) {
+    // 把响应体和状态码挂到 Error 上：调用方可以按 code 区分「自动跳过」这类非失败结果。
+    const err = new Error(j.error || ('HTTP '+r.status));
+    err.status = r.status;
+    err.payload = j;
+    throw err;
+  }
   return j;
 }
 function debounce(fn, wait=250) {
@@ -1419,6 +1433,36 @@ function getAccountsPlanFilter() {
   if (SHOW_FREE_ACCOUNTS_ONLY) return 'free_no_trial';
   return '';
 }
+// 快捷筛选：未改绑（Free）/ 操作异常；与套餐类筛选互斥。
+function getAccountsQuickFilter() {
+  const el = $('#quickFilter');
+  return (el ? el.value : '').trim().toLowerCase();
+}
+function clearAccountsQuickFilter() {
+  const el = $('#quickFilter');
+  if (el) el.value = '';
+}
+function clearAccountsPlanFilters() {
+  SHOW_PLUS_ACCOUNTS_ONLY = false;
+  SHOW_PLUS_TRIAL_ACCOUNTS_ONLY = false;
+  SHOW_FREE_ACCOUNTS_ONLY = false;
+  $('#showPlusAccountsOnly').checked = false;
+  $('#showPlusTrialAccountsOnly').checked = false;
+  $('#showFreeAccountsOnly').checked = false;
+  const promoType = $('#promoTypeFilter');
+  if (promoType) promoType.value = '';
+  const promoDiscount = $('#promoDiscountFilter');
+  if (promoDiscount) promoDiscount.value = '';
+}
+// 下拉框 change 即查询。
+async function applyAccountsQuickFilter() {
+  if (getAccountsQuickFilter()) clearAccountsPlanFilters();
+  ACCOUNT_SELECTED.clear();
+  PAGERS.accounts.page = 1;
+  planStatusRevision = '';
+  await loadAccounts();
+  await pollAccountPlanStatuses();
+}
 async function loadAccounts() {
   if (accountsLoading) return;
   accountsLoading = true;
@@ -1429,7 +1473,7 @@ async function loadAccounts() {
     const totp = getAccountsTotpFilter();
     const q = $('#qAccounts') ? $('#qAccounts').value.trim() : '';
     const p = PAGERS.accounts;
-    const res = await api(`/api/accounts?paged=1&page=${encodeURIComponent(p.page)}&page_size=${encodeURIComponent(p.size)}&archived=${encodeURIComponent(archived)}&plan=${encodeURIComponent(plan)}&codex_status=${encodeURIComponent(codex)}&totp_status=${encodeURIComponent(totp)}&q=${encodeURIComponent(q)}`);
+    const res = await api(`/api/accounts?paged=1&page=${encodeURIComponent(p.page)}&page_size=${encodeURIComponent(p.size)}&archived=${encodeURIComponent(archived)}&plan=${encodeURIComponent(plan)}&codex_status=${encodeURIComponent(codex)}&totp_status=${encodeURIComponent(totp)}&special=${encodeURIComponent(getAccountsQuickFilter())}&q=${encodeURIComponent(q)}`);
     ACCOUNTS = res.items || [];
     ACCOUNTS_TOTAL = Number(res.total || ACCOUNTS.length || 0);
     const totalPages = Math.max(1, Math.ceil(ACCOUNTS_TOTAL / p.size));
@@ -1454,7 +1498,7 @@ async function pollAccountPlanStatuses() {
     const totp = getAccountsTotpFilter();
     const q = $('#qAccounts') ? $('#qAccounts').value.trim() : '';
     const p = PAGERS.accounts;
-    const snapshot = await api(`/api/accounts/plan-check-status?page=${encodeURIComponent(p.page)}&page_size=${encodeURIComponent(p.size)}&archived=${encodeURIComponent(archived)}&plan=${encodeURIComponent(plan)}&codex_status=${encodeURIComponent(codex)}&totp_status=${encodeURIComponent(totp)}&q=${encodeURIComponent(q)}`);
+    const snapshot = await api(`/api/accounts/plan-check-status?page=${encodeURIComponent(p.page)}&page_size=${encodeURIComponent(p.size)}&archived=${encodeURIComponent(archived)}&plan=${encodeURIComponent(plan)}&codex_status=${encodeURIComponent(codex)}&totp_status=${encodeURIComponent(totp)}&special=${encodeURIComponent(getAccountsQuickFilter())}&q=${encodeURIComponent(q)}`);
     const items = snapshot.items || [];
     const accountById = new Map(ACCOUNTS.map(r => [Number(r.id), r]));
     const hasUnknown = items.some(item => !accountById.has(Number(item.id)));
@@ -1810,6 +1854,59 @@ function updateAccountSelectionUi(pageRows = null) {
   cbAll.disabled = pageIds.length === 0;
 }
 
+// ---------- 选中状态自动化：已达成目标的账号自动取消勾选 ----------
+// 批量换绑 / 批量开 2FA 提交时，已达成目标状态的账号自动跳过，并取消它们的勾选；
+// 未达成的账号保留原有勾选状态，方便直接再点一次。
+function findAccountById(id) {
+  const n = Number(id);
+  return ACCOUNTS.find(a => Number(a.id) === n) || null;
+}
+// 已改绑：换绑成功过。口径与后端「未改绑（Free）」快捷筛选相反
+//（email_change_status=success / 有原邮箱 / 有换绑历史）。
+function accountAlreadyChangedEmail(r) {
+  if (!r) return false;
+  if (String(r.email_change_status || '').trim().toLowerCase() === 'success') return true;
+  if (String(r.original_email || '').trim()) return true;
+  const history = r.email_history;
+  if (Array.isArray(history)) return history.length > 0;
+  return !!String(history || '').trim();
+}
+function accountTotpEnabled(r) {
+  if (!r) return false;
+  if (r.totp_enabled === true) return true;
+  return !!String(r.totp_secret || '').trim();
+}
+// 只取消这批账号的勾选（内存 ACCOUNT_SELECTED + 当前页 DOM 复选框一起改）。
+function dropAccountSelection(ids) {
+  let hit = false;
+  (ids || []).forEach(raw => {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return;
+    if (ACCOUNT_SELECTED.delete(n)) hit = true;
+    document.querySelectorAll(`.account-row-check[data-account-id="${n}"]`)
+      .forEach(cb => { cb.checked = false; });
+  });
+  if (hit) updateAccountSelectionUi();
+}
+// 从后端 2FA 批量回执里收集「已开启 2FA」的账号 id，再用本地列表兜底。
+function collectTotpEnabledIds(ids, resp) {
+  const out = new Set();
+  const push = (v) => {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) out.add(n);
+  };
+  const data = resp || {};
+  (data.already_enabled || []).forEach(item => push(item && item.id));
+  (data.skipped || []).forEach(item => {
+    if (!item) return;
+    const code = String(item.code || '');
+    const reason = String(item.reason || '');
+    if (code === 'already_enabled' || reason.indexOf('已经开启 2FA') >= 0) push(item.id);
+  });
+  (ids || []).forEach(id => { if (accountTotpEnabled(findAccountById(id))) push(id); });
+  return Array.from(out);
+}
+
 // ---------- 补跑日志面板 ----------
 let retryLogEmail = null, retryLogTimer = null;
 
@@ -2039,7 +2136,7 @@ $('#accountsBody').addEventListener('click', async (e) => {
 
   const changeEmailBtn = e.target.closest('[data-account-change-email]');
   if (changeEmailBtn) {
-    await changeAccountEmails([Number(changeEmailBtn.dataset.accountChangeEmail)]);
+    await changeAccountEmails([Number(changeEmailBtn.dataset.accountChangeEmail)], true);
     return;
   }
 
@@ -2209,6 +2306,7 @@ $('#showPlusAccountsOnly').addEventListener('change', async (e) => {
     $('#showPlusTrialAccountsOnly').checked = false;
     $('#showFreeAccountsOnly').checked = false;
   }
+  clearAccountsQuickFilter();
   ACCOUNT_SELECTED.clear();
   PAGERS.accounts.page = 1;
   await loadAccounts();
@@ -2222,6 +2320,7 @@ $('#showPlusTrialAccountsOnly').addEventListener('change', async (e) => {
     $('#showPlusAccountsOnly').checked = false;
     $('#showFreeAccountsOnly').checked = false;
   }
+  clearAccountsQuickFilter();
   ACCOUNT_SELECTED.clear();
   PAGERS.accounts.page = 1;
   await loadAccounts();
@@ -2234,6 +2333,7 @@ $('#promoTypeFilter').addEventListener('change', async () => {
   $('#showPlusTrialAccountsOnly').checked = true;
   $('#showPlusAccountsOnly').checked = false;
   $('#showFreeAccountsOnly').checked = false;
+  clearAccountsQuickFilter();
   ACCOUNT_SELECTED.clear();
   PAGERS.accounts.page = 1;
   await loadAccounts();
@@ -2246,6 +2346,7 @@ $('#promoDiscountFilter').addEventListener('change', async () => {
   $('#showPlusTrialAccountsOnly').checked = true;
   $('#showPlusAccountsOnly').checked = false;
   $('#showFreeAccountsOnly').checked = false;
+  clearAccountsQuickFilter();
   ACCOUNT_SELECTED.clear();
   PAGERS.accounts.page = 1;
   await loadAccounts();
@@ -2259,6 +2360,7 @@ $('#showFreeAccountsOnly').addEventListener('change', async (e) => {
     $('#showPlusAccountsOnly').checked = false;
     $('#showPlusTrialAccountsOnly').checked = false;
   }
+  clearAccountsQuickFilter();
   ACCOUNT_SELECTED.clear();
   PAGERS.accounts.page = 1;
   await loadAccounts();
@@ -2340,20 +2442,49 @@ async function setupAccountTotp(id, btn) {
   }
 }
 
-async function changeAccountEmails(ids) {
+async function changeAccountEmails(ids, single) {
   ids = (ids || []).map(Number).filter(Boolean);
   if (!ids.length) { showToast('请先选择账号'); return; }
+  const isSingle = !!single && ids.length === 1;   // 行内「换绑邮箱」入口才走单账号接口
+  // 已换绑成功的账号：自动跳过 + 取消勾选；未换绑的保留勾选状态。
+  const changedIds = new Set(ids.filter(id => accountAlreadyChangedEmail(findAccountById(id))));
+  const pendingIds = ids.filter(id => !changedIds.has(id));
+  if (!pendingIds.length) {
+    dropAccountSelection(Array.from(changedIds));
+    showToast(`选中的 ${changedIds.size} 个账号都已换绑成功，已自动跳过并取消勾选`);
+    return;
+  }
   const source = prompt('请输入新邮箱来源：\noutlook / generic_api / imap / cloudflare_domain / cloudflare / gptmail / mailnest / cloudmail / remail / xigua', 'outlook');
   if (!source) return;
+  if (changedIds.size) dropAccountSelection(Array.from(changedIds));
   try {
-    const url = ids.length === 1 ? `/api/accounts/${ids[0]}/change-email` : '/api/accounts/change-email-bulk';
-    const body = ids.length === 1 ? {source:source.trim()} : {source:source.trim(), account_ids:ids};
+    const url = isSingle ? `/api/accounts/${pendingIds[0]}/change-email` : '/api/accounts/change-email-bulk';
+    const body = isSingle ? {source:source.trim()} : {source:source.trim(), account_ids:pendingIds};
     const r = await api(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
-    ACCOUNT_SELECTED.clear();
-    showToast(ids.length === 1 ? '邮箱换绑任务已开始' : `已开始 ${r.started_count || 0} 个，跳过 ${(r.skipped || []).length} 个`);
+    // 本地列表可能过期，以后端回执的「已换绑」名单为准再取消一次勾选。
+    (r.already_changed || []).forEach(item => {
+      const n = Number(item && item.id);
+      if (Number.isFinite(n)) changedIds.add(n);
+    });
+    if (changedIds.size) dropAccountSelection(Array.from(changedIds));
+    updateAccountSelectionUi();
+    const changedNote = changedIds.size ? `（其中 ${changedIds.size} 个已换绑成功，已取消勾选）` : '';
+    const skippedCount = (r.skipped || []).length;
+    showToast(isSingle
+      ? `邮箱换绑任务已开始${changedNote}`
+      : `已开始 ${r.started_count || 0} 个，跳过 ${skippedCount} 个${changedNote}`);
     loadAccounts();
     const poll = setInterval(loadAccounts, 5000); setTimeout(() => clearInterval(poll), 10 * 60 * 1000);
-  } catch(e) { showToast('邮箱换绑失败: ' + e.message); }
+  } catch(e) {
+    // 本地列表过期：后端确认这个账号已换绑成功 → 按「自动跳过」处理，不当失败报错。
+    if (e && e.payload && e.payload.code === 'already_changed') {
+      dropAccountSelection(ids);
+      updateAccountSelectionUi();
+      showToast('该账号已换绑成功，已自动跳过并取消勾选');
+    } else {
+      showToast('邮箱换绑失败: ' + e.message);
+    }
+  }
 }
 
 async function setupSelectedTotp() {
@@ -2372,12 +2503,16 @@ async function setupSelectedTotp() {
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({account_ids: ids}),
     });
-    (r.started || []).forEach(item => ACCOUNT_SELECTED.delete(Number(item.id)));
+    // 已开启 2FA 的账号：自动跳过 + 取消勾选；其余（含本次已入队的）保留勾选状态，
+    // 任务跑完之后它们就是「已开启」，再点一次会被自动跳过并取消勾选。
+    const alreadyEnabledIds = collectTotpEnabledIds(ids, r);
+    if (alreadyEnabledIds.length) dropAccountSelection(alreadyEnabledIds);
     const skippedCount = Number(r.skipped_count ?? (r.skipped || []).length) || 0;
     const busyCount = Number(r.busy_count ?? (r.busy || []).length) || 0;
     const failedCount = Number(r.failed_count ?? (r.failed || []).length) || 0;
     const details = [];
     if (skippedCount) details.push(`跳过 ${skippedCount} 个`);
+    if (alreadyEnabledIds.length) details.push(`其中 ${alreadyEnabledIds.length} 个已开启（已取消勾选）`);
     if (busyCount) details.push(`进行中 ${busyCount} 个`);
     if (failedCount) details.push(`失败 ${failedCount} 个`);
     showToast(`已入队 ${r.started_count || 0} 个${details.length ? '，' + details.join('，') : ''}`);
@@ -3065,6 +3200,8 @@ async function retrySelectedCodex() {
 $('#qAccounts').addEventListener('input', debounce(() => { ACCOUNT_SELECTED.clear(); PAGERS.accounts.page = 1; loadAccounts(); }, 250));
 $('#codexStatusFilter').addEventListener('change', () => { ACCOUNT_SELECTED.clear(); PAGERS.accounts.page = 1; loadAccounts(); });
 $('#totpStatusFilter').addEventListener('change', () => { ACCOUNT_SELECTED.clear(); PAGERS.accounts.page = 1; loadAccounts(); });
+// 快捷筛选：change 即查询（套餐类筛选的互斥清理由 applyAccountsQuickFilter 处理）。
+$('#quickFilter').addEventListener('change', () => { applyAccountsQuickFilter(); });
 $('#copyAllTokens').addEventListener('click', async () => {
   const ids = ACCOUNTS.filter(r => r.has_access_token).map(r => Number(r.id));
   if (!ids.length) { showToast('当前页没有 Token'); return; }

@@ -499,6 +499,11 @@ def create_app(auth_code: str | None = None) -> Flask:
         q = str(request.args.get("q", default="") or "").strip()
         date_from = str(request.args.get("date_from", default="") or "").strip() or None
         date_to = str(request.args.get("date_to", default="") or "").strip() or None
+        # special：账号列表的快捷筛选（unchanged=未改绑且套餐Free / abnormal=操作异常）。
+        # 与套餐类筛选互斥由前端保证，这里只做透传。
+        special_filter = str(
+            request.args.get("special") or request.args.get("quick_filter") or ""
+        ).strip().lower()
         # 新分页接口：传 page/page_size 或 paged=1 时返回 {items,total,page,page_size,...}
         paged = str(request.args.get("paged", default="") or "").lower() in {"1", "true", "yes"}
         page_arg = request.args.get("page", default=None, type=int)
@@ -507,11 +512,11 @@ def create_app(auth_code: str | None = None) -> Flask:
             page = max(1, int(page_arg or 1))
             page_size = max(1, min(500, int(page_size_arg or limit or 50)))
             offset = (page - 1) * page_size
-            result = db.list_accounts_page(limit=page_size, offset=offset, archived=archived, plan_filter=plan_filter, codex_filter=codex_filter, q=q, date_from=date_from, date_to=date_to, totp_filter=totp_filter, plan_group_filter=plan_group_filter)
+            result = db.list_accounts_page(limit=page_size, offset=offset, archived=archived, plan_filter=plan_filter, codex_filter=codex_filter, q=q, date_from=date_from, date_to=date_to, totp_filter=totp_filter, plan_group_filter=plan_group_filter, special_filter=special_filter)
             result["items"] = [_compact_account_for_list(r) for r in (result.get("items") or [])]
             result.update({"ok": True, "page": page, "page_size": page_size, "compact": True})
             return jsonify(result)
-        return jsonify(db.list_accounts(limit=limit, archived=archived, plan_filter=plan_filter, codex_filter=codex_filter, q=q, date_from=date_from, date_to=date_to, totp_filter=totp_filter, plan_group_filter=plan_group_filter))
+        return jsonify(db.list_accounts(limit=limit, archived=archived, plan_filter=plan_filter, codex_filter=codex_filter, q=q, date_from=date_from, date_to=date_to, totp_filter=totp_filter, plan_group_filter=plan_group_filter, special_filter=special_filter))
 
     @app.get("/api/accounts/plan-group-options")
     def api_account_plan_group_options():
@@ -541,16 +546,20 @@ def create_app(auth_code: str | None = None) -> Flask:
         q = str(request.args.get("q", default="") or "").strip()
         date_from = str(request.args.get("date_from", default="") or "").strip() or None
         date_to = str(request.args.get("date_to", default="") or "").strip() or None
+        # special：与 /api/accounts 保持同一口径，轮询时才不会把筛选结果又拉回全量。
+        special_filter = str(
+            request.args.get("special") or request.args.get("quick_filter") or ""
+        ).strip().lower()
         page_arg = request.args.get("page", default=None, type=int)
         page_size_arg = request.args.get("page_size", default=None, type=int)
         if page_arg is not None or page_size_arg is not None:
             page = max(1, int(page_arg or 1))
             page_size = max(1, min(500, int(page_size_arg or limit or 50)))
             offset = (page - 1) * page_size
-            snapshot = db.list_account_plan_check_statuses(limit=page_size, offset=offset, archived=archived, plan_filter=plan_filter, codex_filter=codex_filter, q=q, date_from=date_from, date_to=date_to, totp_filter=totp_filter, plan_group_filter=plan_group_filter)
+            snapshot = db.list_account_plan_check_statuses(limit=page_size, offset=offset, archived=archived, plan_filter=plan_filter, codex_filter=codex_filter, q=q, date_from=date_from, date_to=date_to, totp_filter=totp_filter, plan_group_filter=plan_group_filter, special_filter=special_filter)
             snapshot.update({"page": page, "page_size": page_size})
         else:
-            snapshot = db.list_account_plan_check_statuses(limit=max(1, min(5000, limit)), archived=archived, plan_filter=plan_filter, codex_filter=codex_filter, q=q, date_from=date_from, date_to=date_to, totp_filter=totp_filter, plan_group_filter=plan_group_filter)
+            snapshot = db.list_account_plan_check_statuses(limit=max(1, min(5000, limit)), archived=archived, plan_filter=plan_filter, codex_filter=codex_filter, q=q, date_from=date_from, date_to=date_to, totp_filter=totp_filter, plan_group_filter=plan_group_filter, special_filter=special_filter)
         snapshot["queue"] = plan_check_service.queue_settings()
         return jsonify(snapshot)
 
@@ -744,9 +753,15 @@ def create_app(auth_code: str | None = None) -> Flask:
         acc = db.get_account(acc_id)
         if not acc:
             return jsonify({"ok": False, "error": "账号不存在"}), 404
+        from core import email_change_service
+        if email_change_service.is_already_changed(acc):
+            # 已换绑成功的账号重复换绑会把上一次刚换上的新邮箱再换掉，直接跳过。
+            return jsonify({
+                "ok": False, "skipped": True, "code": "already_changed",
+                "error": "该账号已换绑成功，已自动跳过",
+            }), 409
         if not str(acc.get("access_token") or "").strip():
             return jsonify({"ok": False, "error": "账号缺少 access_token，请先查活刷新 AT"}), 400
-        from core import email_change_service
         result = email_change_service.enqueue(acc_id, source, trigger="manual", proxy_group=proxy_group)
         public = {k: v for k, v in result.items() if k != "future"}
         return jsonify({"ok": bool(result.get("accepted")), **public}), (202 if result.get("accepted") else 409)
@@ -771,22 +786,38 @@ def create_app(auth_code: str | None = None) -> Flask:
             return jsonify({"ok": False, "error": group_error}), 400
         from core import email_change_service
         started, skipped = [], []
+        already_changed = []
         seen_ids: set[int] = set()
         for raw_id in ids:
             try:
                 acc_id = int(raw_id)
             except (TypeError, ValueError):
-                skipped.append({"id": raw_id, "reason": "ID 非法"})
+                skipped.append({"id": raw_id, "code": "invalid_id", "reason": "ID 非法"})
                 continue
             if acc_id in seen_ids:
                 continue
             seen_ids.add(acc_id)
             acc = db.get_account(acc_id)
             if not acc:
-                skipped.append({"id": acc_id, "reason": "账号不存在"})
+                skipped.append({"id": acc_id, "code": "not_found", "reason": "账号不存在"})
+                continue
+            if email_change_service.is_already_changed(acc):
+                # 已换绑成功的账号自动跳过：重复换绑会把上一次刚换上的新邮箱再换掉。
+                # 前端会据此把这批账号从勾选里去掉，未换绑的保留勾选状态。
+                item = {
+                    "id": acc_id,
+                    "email": acc.get("email"),
+                    "code": "already_changed",
+                    "reason": "该账号已换绑成功",
+                }
+                skipped.append(item)
+                already_changed.append(item)
                 continue
             if not str(acc.get("access_token") or "").strip():
-                skipped.append({"id": acc_id, "email": acc.get("email"), "reason": "缺少 access_token"})
+                skipped.append({
+                    "id": acc_id, "email": acc.get("email"),
+                    "code": "missing_token", "reason": "缺少 access_token",
+                })
                 continue
             result = email_change_service.enqueue(
                 acc_id, source, trigger="manual_bulk", proxy_group=proxy_group
@@ -794,8 +825,20 @@ def create_app(auth_code: str | None = None) -> Flask:
             if result.get("accepted"):
                 started.append({"id": acc_id, "email": acc.get("email"), "status": "queued"})
             else:
-                skipped.append({"id": acc_id, "email": acc.get("email"), "reason": result.get("error")})
-        return jsonify({"ok": True, "started": started, "started_count": len(started), "skipped": skipped}), 202
+                skipped.append({
+                    "id": acc_id, "email": acc.get("email"),
+                    "code": "busy" if result.get("busy") else "rejected",
+                    "reason": result.get("error"),
+                })
+        return jsonify({
+            "ok": True,
+            "started": started,
+            "started_count": len(started),
+            "skipped": skipped,
+            "skipped_count": len(skipped),
+            "already_changed": already_changed,
+            "already_changed_count": len(already_changed),
+        }), 202
 
     @app.post("/api/accounts/totp-setup-bulk")
     def api_accounts_totp_setup_bulk():
@@ -816,12 +859,13 @@ def create_app(auth_code: str | None = None) -> Flask:
 
         account_ids = []
         skipped = []
+        already_enabled = []
         seen = set()
         for raw in ids:
             try:
                 acc_id = int(raw)
             except (TypeError, ValueError):
-                skipped.append({"id": raw, "reason": "ID 非法"})
+                skipped.append({"id": raw, "code": "invalid_id", "reason": "ID 非法"})
                 continue
             if acc_id in seen:
                 continue
@@ -832,18 +876,31 @@ def create_app(auth_code: str | None = None) -> Flask:
         for acc_id in account_ids:
             acc = db.get_account(acc_id)
             if not acc:
-                skipped.append({"id": acc_id, "reason": "账号不存在"})
+                skipped.append({"id": acc_id, "code": "not_found", "reason": "账号不存在"})
                 continue
             email = str(acc.get("email") or "").strip()
             token = str(acc.get("access_token") or "").strip()
-            if not token:
-                skipped.append({"id": acc_id, "email": email, "reason": "缺少 access_token"})
-                continue
             if str(acc.get("totp_secret") or "").strip():
-                skipped.append({"id": acc_id, "email": email, "reason": "该账号已经开启 2FA"})
+                # 已开启 2FA 的账号自动跳过；这一条要在「缺少 access_token」之前判，
+                # 否则刚换绑成功（AT 暂空）但已带 TOTP 密钥的账号会被当成"缺 token"
+                # 留在勾选里。前端据 code=already_enabled 自动取消这批账号的勾选。
+                item = {
+                    "id": acc_id,
+                    "email": email,
+                    "code": "already_enabled",
+                    "reason": "该账号已经开启 2FA",
+                }
+                skipped.append(item)
+                already_enabled.append(item)
+                continue
+            if not token:
+                skipped.append({
+                    "id": acc_id, "email": email,
+                    "code": "missing_token", "reason": "缺少 access_token",
+                })
                 continue
             if not email:
-                skipped.append({"id": acc_id, "reason": "邮箱为空"})
+                skipped.append({"id": acc_id, "code": "empty_email", "reason": "邮箱为空"})
                 continue
             accounts.append(acc)
 
@@ -872,6 +929,7 @@ def create_app(auth_code: str | None = None) -> Flask:
                 failed.append({
                     "id": acc_id,
                     "email": email,
+                    "code": "exception",
                     "error": f"{type(exc).__name__}: {exc}",
                 })
                 continue
@@ -883,8 +941,10 @@ def create_app(auth_code: str | None = None) -> Flask:
                 item["status"] = "queued"
                 started.append(item)
             elif queued.get("busy"):
+                item["code"] = "busy"
                 busy.append(item)
             else:
+                item["code"] = "rejected"
                 failed.append(item)
 
         return jsonify({
@@ -898,6 +958,8 @@ def create_app(auth_code: str | None = None) -> Flask:
             "failed_count": len(failed),
             "skipped": skipped,
             "skipped_count": len(skipped),
+            "already_enabled": already_enabled,
+            "already_enabled_count": len(already_enabled),
             "queue": twofa_service.queue_settings(),
         }), 202
 
